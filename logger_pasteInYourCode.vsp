@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.4
+--!ScriptVersion: 2.7
 
 
 ------------------------------------------------------------------------------
@@ -374,16 +374,23 @@ function readIni()
   if LOG_LEVEL == logLevel.Off then
     -- create a mock "object" with no functionality
     Log = {
-      ["scriptInfo"]   = function() end,
-      [logLevel.Trace] = function() end,
-      [logLevel.Debug] = function() end,
-      [logLevel.Info]  = function() end,
-      [logLevel.Warn]  = function() end,
-      [logLevel.Error] = function() end
+      ["scriptInfo"]           = function() end,
+      [logLevel.Trace]         = function() end,
+      [logLevel.Debug]         = function() end,
+      [logLevel.Info]          = function() end,
+      [logLevel.Warn]          = function() end,
+      [logLevel.Error]         = function() end,
+      [logLevel.Trace .. "Ex"] = function() end,
+      [logLevel.Debug .. "Ex"] = function() end,
+      [logLevel.Info .. "Ex"]  = function() end,
+      [logLevel.Warn .. "Ex"]  = function() end,
+      [logLevel.Error .. "Ex"] = function() end,
+      ["log"]                  = function() end,
+      ["logEx"]                = function() end,
     }
   else
     if not file_exists("logger.vsp") then
-      vpos.view.showWindow("Log settings wrong!\001 Please set LOG_LEVEL = off or import the logger script!")
+      vpos.view.showWindow("Log settings wrong!\001Please set LOG_LEVEL = off or import the logger script!")
       vpos.script.exitScript()
     end
     Log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, URL_PAPERTRAIL, scriptName,
