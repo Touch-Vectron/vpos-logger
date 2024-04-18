@@ -49,7 +49,7 @@ ENABLE_LOGGER_ASSERTS = false
 --- Switch to enable debugging logs for the logger itself. SHOULD be used sparsely!
 ENABLE_LOGGER_LOGS = false
 
---- Interval in milliseconds, at which the script timer fires events for logging.
+--- Interval in milliseconds, at which the script timer triggers calls for logging the logs.
 LOG_TIMER_INTERVAL = 320
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
 --- A good interval is [1; 10] minutes.<br/>
@@ -1025,11 +1025,7 @@ end
 
 local function isUploadRound()
   local split = UploadStopWatch:split()
-  if split < UPLOAD_ROUND_INTERVAL then
-     return false
-  else
-     return true
-  end
+  return split >= UPLOAD_ROUND_INTERVAL
 end
 
 local function resetUploadRound()
