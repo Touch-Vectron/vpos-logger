@@ -1,8 +1,8 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.6
+--!ScriptVersion: 2.7
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
--- Date: 03/2024
+-- Date: 04/2024
 -- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
 
 
@@ -49,7 +49,7 @@ ENABLE_LOGGER_ASSERTS = false
 --- Switch to enable debugging logs for the logger itself. SHOULD be used sparsely!
 ENABLE_LOGGER_LOGS = false
 
---- Interval in milliseconds, at which the script timer fires events for logging.
+--- Interval in milliseconds, at which the script timer triggers calls for logging the logs.
 LOG_TIMER_INTERVAL = 320
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
 --- A good interval is [1; 10] minutes.<br/>
@@ -200,6 +200,8 @@ local function decomposeIsoDate(isoDate)
     error("String is too short to be an ISO 8601 date or is incomplete (down to seconds required)")
   elseif dateLen > 25 then
     error("String is too long to be an ISO 8601 date")
+  elseif dateLen == 21 or dateLen == 23 or dateLen == 24 then
+    error("String length is invalid to be an ISO 8601 date")
   end
   if string.byte(isoDate, 5)  ~= IsoDate.BYTE_DATE_SEP                        or
      string.byte(isoDate, 8)  ~= IsoDate.BYTE_DATE_SEP                        or
@@ -207,12 +209,12 @@ local function decomposeIsoDate(isoDate)
      string.byte(isoDate, 14) ~= IsoDate.BYTE_TIME_SEP                        or
      string.byte(isoDate, 17) ~= IsoDate.BYTE_TIME_SEP                        or
      (dateLen == 20 and string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_UTC_MARK) or
-     (dateLen == 22 and
-      (string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_PLUS_MARK or
+     ((dateLen == 22 or dateLen == 25) and
+      (string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_PLUS_MARK and
        string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_MINUS_MARK))               or
      (dateLen == 25 and
-      (string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_PLUS_MARK  or
-       string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_MINUS_MARK or
+      ((string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_PLUS_MARK and
+        string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_MINUS_MARK) or
        string.byte(isoDate, 23) ~= IsoDate.BYTE_TIME_SEP)) then
     error("String is not an ISO 8601 date")
   end
@@ -231,18 +233,15 @@ local function decomposeIsoDate(isoDate)
   local second = tonumber(string.sub(isoDate, 18, 19))
   if not second then error("Can't convert second to number") end
 
-  local timezoneHour, timezoneMinute
-  if dateLen == 22 then
-    timezoneHour = tonumber(string.sub(isoDate, 21, 22))
+  local timezoneHour = 0 ---@type number?
+  if dateLen == 22 or dateLen == 25 then
+    timezoneHour = tonumber(string.sub(isoDate, 20, 22))
     if not timezoneHour then error("Can't convert time zone hour to number") end
-  else
-    timezoneHour = 0
   end
+  local timezoneMinute = 0 ---@type number?
   if dateLen == 25 then
     timezoneMinute = tonumber(string.sub(isoDate, 24, 25))
     if not timezoneMinute then error("Can't convert time zone minute to number") end
-  else
-    timezoneMinute = 0
   end
 
   return {
@@ -1025,11 +1024,7 @@ end
 
 local function isUploadRound()
   local split = UploadStopWatch:split()
-  if split < UPLOAD_ROUND_INTERVAL then
-     return false
-  else
-     return true
-  end
+  return split >= UPLOAD_ROUND_INTERVAL
 end
 
 local function resetUploadRound()
@@ -1064,9 +1059,11 @@ local function readIniSettingsForUploadingOfflineLogs()
     local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
     if fileExt == "ini" then
       local filePath = "VPOS:" .. fileName
-      local initTab = vpos.utils.readIniFromFile(filePath)
-      if initTab and type(initTab) == "table" and
-         initTab.LOGS and type(initTab.LOGS) == "table" then
+      local ok, initTab = pcall(vpos.utils.readIniFromFile, filePath)
+      if not ok then -- `initTab` is `pcall`s error message here
+        logDev("Can't parse " .. fileName .. " settings", initTab)
+      elseif initTab and type(initTab) == "table" and
+             initTab.LOGS and type(initTab.LOGS) == "table" then
         local iniLogType = initTab.LOGS.LOG_TYPE
         if iniLogType then
           local logType = string.lower(tostring(iniLogType))
