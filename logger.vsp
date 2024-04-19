@@ -1,8 +1,8 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.6
+--!ScriptVersion: 2.7
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
--- Date: 03/2024
+-- Date: 04/2024
 -- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
 
 
@@ -1059,9 +1059,11 @@ local function readIniSettingsForUploadingOfflineLogs()
     local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
     if fileExt == "ini" then
       local filePath = "VPOS:" .. fileName
-      local initTab = vpos.utils.readIniFromFile(filePath)
-      if initTab and type(initTab) == "table" and
-         initTab.LOGS and type(initTab.LOGS) == "table" then
+      local ok, initTab = pcall(vpos.utils.readIniFromFile, filePath)
+      if not ok then -- `initTab` is `pcall`s error message here
+        logDev("Can't parse " .. fileName .. " settings", initTab)
+      elseif initTab and type(initTab) == "table" and
+             initTab.LOGS and type(initTab.LOGS) == "table" then
         local iniLogType = initTab.LOGS.LOG_TYPE
         if iniLogType then
           local logType = string.lower(tostring(iniLogType))
