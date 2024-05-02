@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 1.1
+--!ScriptVersion: 1.2
 -- Copyright (C) 2024 Touch Vectron
 -- Script name: logger_ut.vsp
 -- Script description: Unit tests for logger (logger.vsp and logger_pasteInYourCode) 
@@ -542,15 +542,13 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   end
 
   --- Logs a trace message, containing the calling function line and name, the current Unix
-  --- time and a string formatted with the given format and vararg, possibly truncating the
-  --- message.
-  ---@param messageFormat string? The message format
-  ---@param full boolean? Flag to send the full message if `true`, otherwise the possibly truncated message
-  ---@param ... any The message vararg
-  function self.trace(messageFormat, full, ...)
+  --- time and the given message, possibly truncating it.
+  ---@param message string? The message to log
+  ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
+  function self.trace(message, full)
     if logTab.levelValue >= LogLevelValue.TRACE then
       local info = debug.getinfo(2, "nl")
-      local msg = (messageFormat and string.format(messageFormat, ...)) or ""
+      local msg  = message or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
       local now = vpos.datetime.DateTime():getUnixTime() or ""
       logTab.message      = now .. "@ " .. msg
@@ -560,15 +558,14 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-  --- Logs a debug message, containing the calling function line and name and a string
-  --- formatted with the given format and vararg, possibly truncating the message.
-  ---@param messageFormat string? The message format
-  ---@param full boolean? Flag to send the full message if `true`, otherwise the possibly truncated message
-  ---@param ... any The message vararg
-  function self.debug(messageFormat, full, ...)
+  --- Logs a debug message, containing the calling function line and name and the given
+  --- message, possibly truncating it.
+  ---@param message string? The message to log
+  ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
+  function self.debug(message, full)
     if logTab.levelValue >= LogLevelValue.DEBUG then
       local info = debug.getinfo(2, "nl")
-      local msg = (messageFormat and string.format(messageFormat, ...)) or ""
+      local msg  = message or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Debug
@@ -577,30 +574,26 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-  --- Logs an informational message, containing a string formatted with the given format
-  --- and vararg, possibly truncating the message.
-  ---@param messageFormat string? The message format
-  ---@param full boolean? Flag to send the full message if `true`, otherwise the possibly truncated message
-  ---@param ... any The message vararg
-  function self.info(messageFormat, full, ...)
+  --- Logs an informational message, possibly truncating it.
+  ---@param message string? The message to log
+  ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
+  function self.info(message, full)
     if logTab.levelValue >= LogLevelValue.INFO then
-      local msg = (messageFormat and string.format(messageFormat, ...)) or ""
-      logTab.message      = msg
+      logTab.message      = message or ""
       logTab.messageLevel = logLevel.Info
       logTab.priority     = Priority.USER_INFO
       logData(logTab, full)
     end
   end
 
-  --- Logs a warning message, containing the calling function line and name and a string
-  --- formatted with the given format and vararg, possibly truncating the message.
-  ---@param messageFormat string? The message format
-  ---@param full boolean? Flag to send the full message if `true`, otherwise the possibly truncated message
-  ---@param ... any The message vararg
-  function self.warn(messageFormat, full, ...)
+  --- Logs a warning message, containing the calling function line and name and the given
+  --- message, possibly truncating it.
+  ---@param message string? The message to log
+  ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
+  function self.warn(message, full)
     if logTab.levelValue >= LogLevelValue.WARN then
       local info = debug.getinfo(2, "nl")
-      local msg = (messageFormat and string.format(messageFormat, ...)) or ""
+      local msg  = message or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Warn
@@ -609,14 +602,13 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     end
   end
 
-  --- Logs an error message, containing the calling function line and name and a string
-  --- formatted with the given format and vararg, and always sending it fully.
-  ---@param messageFormat string? The message format
-  ---@param ... any The message vararg
-  function self.error(messageFormat, ...)
+  --- Logs an error message, containing the calling function line and name and the given
+  --- message, always fully.
+  ---@param message string? The message to log
+  function self.error(message)
     if logTab.levelValue >= LogLevelValue.ERROR then
       local info = debug.getinfo(2, "nl")
-      local msg = (messageFormat and string.format(messageFormat, ...)) or ""
+      local msg  = message or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Error
@@ -629,14 +621,14 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   --- name and a string formatted with the given format and vararg, possibly truncating the
   --- message.
   ---@param messageLevel logLevel The message logging level
+  ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
   ---@param messageFormat string? The message format
-  ---@param full boolean? Flag to send the full message if `true`, otherwise the possibly truncated message
   ---@param ... any The message vararg
-  function self.log(messageLevel, messageFormat, full, ...)
+  function self.log(messageLevel, full, messageFormat, ...)
     local messageLevelValue = mapLogLevelNameToValue(messageLevel)
     if messageLevelValue > LogLevelValue.OFF and logTab.levelValue >= messageLevelValue then
       local info = debug.getinfo(2, "nl")
-      local msg = (messageFormat and string.format(messageFormat, ...)) or ""
+      local msg  = (messageFormat and string.format(messageFormat, ...)) or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
       if messageLevelValue == LogLevelValue.TRACE then
         local now = vpos.datetime.DateTime():getUnixTime() or ""
@@ -672,80 +664,108 @@ local function test_AllLoggingVariations()
   local msgLen = msgGt1000:len()
   assert(msgLen > LOG_TRUNCATE_SIZE)
 
-  Log.trace(                "Direct normal test without full:      " .. msgGt1000)
-  Log.trace(                "Direct normal test with full=false:   " .. msgGt1000, false)
-  Log.trace(                "Direct normal test with full=true:    " .. msgGt1000, true)
-  Log.trace(                "Direct normal test with full=0:       " .. msgGt1000, 0)
-  Log.log(logLevel.Trace,   "Indirect normal test without full:    " .. msgGt1000)
-  Log.log(logLevel.Trace,   "Indirect normal test with full=false: " .. msgGt1000, false)
-  Log.log(logLevel.Trace,   "Indirect normal test with full=true:  " .. msgGt1000, true)
-  Log.log(logLevel.Trace,   "Indirect normal test with full=0:     " .. msgGt1000, 0)
-  Log.trace(                "Direct vararg test with full=false:   %s", false, msgGt1000)
-  Log.trace(                "Direct vararg test with full=true:    %s", true,  msgGt1000)
-  Log.log(logLevel.Trace,   "Indirect vararg test with full=false: %s", false, msgGt1000)
-  Log.log(logLevel.Trace,   "Indirect vararg test with full=true:  %s", true,  msgGt1000)
+  Log.trace(                     "Direct normal test without full:      " .. msgGt1000)
+  Log.trace(                     "Direct normal test with full=false:   " .. msgGt1000, false)
+  Log.trace(                     "Direct normal test with full=true:    " .. msgGt1000, true)
+  Log.trace(                     "Direct normal test with full=0:       " .. msgGt1000, 0)
+  Log.log(logLevel.Trace, nil,   "Indirect normal test with full=nil:   " .. msgGt1000)
+  Log.log(logLevel.Trace, false, "Indirect normal test with full=false: " .. msgGt1000)
+  Log.log(logLevel.Trace, true,  "Indirect normal test with full=true:  " .. msgGt1000)
+  Log.log(logLevel.Trace, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
+  Log.trace(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.trace(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.log(logLevel.Trace, false, "Indirect format test with full=false: %s", msgGt1000)
+  Log.log(logLevel.Trace, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
-  Log.debug(                "Direct normal test without full:      " .. msgGt1000)
-  Log.debug(                "Direct normal test with full=false:   " .. msgGt1000, false)
-  Log.debug(                "Direct normal test with full=true:    " .. msgGt1000, true)
-  Log.debug(                "Direct normal test with full=0:       " .. msgGt1000, 0)
-  Log.log(logLevel.Debug,   "Indirect normal test without full:    " .. msgGt1000)
-  Log.log(logLevel.Debug,   "Indirect normal test with full=false: " .. msgGt1000, false)
-  Log.log(logLevel.Debug,   "Indirect normal test with full=true:  " .. msgGt1000, true)
-  Log.log(logLevel.Debug,   "Indirect normal test with full=0:     " .. msgGt1000, 0)
-  Log.debug(                "Direct vararg test with full=false:   %s", false, msgGt1000)
-  Log.debug(                "Direct vararg test with full=true:    %s", true,  msgGt1000)
-  Log.log(logLevel.Debug,   "Indirect vararg test with full=false: %s", false, msgGt1000)
-  Log.log(logLevel.Debug,   "Indirect vararg test with full=true:  %s", true,  msgGt1000)
+  Log.debug(                     "Direct normal test without full:      " .. msgGt1000)
+  Log.debug(                     "Direct normal test with full=false:   " .. msgGt1000, false)
+  Log.debug(                     "Direct normal test with full=true:    " .. msgGt1000, true)
+  Log.debug(                     "Direct normal test with full=0:       " .. msgGt1000, 0)
+  Log.log(logLevel.Debug, nil,   "Indirect normal test with full=nil:   " .. msgGt1000)
+  Log.log(logLevel.Debug, false, "Indirect normal test with full=false: " .. msgGt1000)
+  Log.log(logLevel.Debug, true,  "Indirect normal test with full=true:  " .. msgGt1000)
+  Log.log(logLevel.Debug, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
+  Log.debug(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.debug(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.log(logLevel.Debug, false, "Indirect format test with full=false: %s", msgGt1000)
+  Log.log(logLevel.Debug, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
-  Log.info(                "Direct normal test without full:      " .. msgGt1000)
-  Log.info(                "Direct normal test with full=false:   " .. msgGt1000, false)
-  Log.info(                "Direct normal test with full=true:    " .. msgGt1000, true)
-  Log.info(                "Direct normal test with full=0:       " .. msgGt1000, 0)
-  Log.log(logLevel.Info,   "Indirect normal test without full:    " .. msgGt1000)
-  Log.log(logLevel.Info,   "Indirect normal test with full=false: " .. msgGt1000, false)
-  Log.log(logLevel.Info,   "Indirect normal test with full=true:  " .. msgGt1000, true)
-  Log.log(logLevel.Info,   "Indirect normal test with full=0:     " .. msgGt1000, 0)
-  Log.info(                "Direct vararg test with full=false:   %s", false, msgGt1000)
-  Log.info(                "Direct vararg test with full=true:    %s", true,  msgGt1000)
-  Log.log(logLevel.Info,   "Indirect vararg test with full=false: %s", false, msgGt1000)
-  Log.log(logLevel.Info,   "Indirect vararg test with full=true:  %s", true,  msgGt1000)
+  Log.info(                     "Direct normal test without full:      " .. msgGt1000)
+  Log.info(                     "Direct normal test with full=false:   " .. msgGt1000, false)
+  Log.info(                     "Direct normal test with full=true:    " .. msgGt1000, true)
+  Log.info(                     "Direct normal test with full=0:       " .. msgGt1000, 0)
+  Log.log(logLevel.Info, nil,   "Indirect normal test with full=nil:   " .. msgGt1000)
+  Log.log(logLevel.Info, false, "Indirect normal test with full=false: " .. msgGt1000)
+  Log.log(logLevel.Info, true,  "Indirect normal test with full=true:  " .. msgGt1000)
+  Log.log(logLevel.Info, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
+  Log.info(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.info(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.log(logLevel.Info, false, "Indirect format test with full=false: %s", msgGt1000)
+  Log.log(logLevel.Info, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
-  Log.warn(                "Direct normal test without full:      " .. msgGt1000)
-  Log.warn(                "Direct normal test with full=false:   " .. msgGt1000, false)
-  Log.warn(                "Direct normal test with full=true:    " .. msgGt1000, true)
-  Log.warn(                "Direct normal test with full=0:       " .. msgGt1000, 0)
-  Log.log(logLevel.Warn,   "Indirect normal test without full:    " .. msgGt1000)
-  Log.log(logLevel.Warn,   "Indirect normal test with full=false: " .. msgGt1000, false)
-  Log.log(logLevel.Warn,   "Indirect normal test with full=true:  " .. msgGt1000, true)
-  Log.log(logLevel.Warn,   "Indirect normal test with full=0:     " .. msgGt1000, 0)
-  Log.warn(                "Direct vararg test with full=false:   %s", false, msgGt1000)
-  Log.warn(                "Direct vararg test with full=true:    %s", true,  msgGt1000)
-  Log.log(logLevel.Warn,   "Indirect vararg test with full=false: %s", false, msgGt1000)
-  Log.log(logLevel.Warn,   "Indirect vararg test with full=true:  %s", true,  msgGt1000)
+  Log.warn(                     "Direct normal test without full:      " .. msgGt1000)
+  Log.warn(                     "Direct normal test with full=false:   " .. msgGt1000, false)
+  Log.warn(                     "Direct normal test with full=true:    " .. msgGt1000, true)
+  Log.warn(                     "Direct normal test with full=0:       " .. msgGt1000, 0)
+  Log.log(logLevel.Warn, nil,   "Indirect normal test with full=nil:   " .. msgGt1000)
+  Log.log(logLevel.Warn, false, "Indirect normal test with full=false: " .. msgGt1000)
+  Log.log(logLevel.Warn, true,  "Indirect normal test with full=true:  " .. msgGt1000)
+  Log.log(logLevel.Warn, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
+  Log.warn(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.warn(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.log(logLevel.Warn, false, "Indirect format test with full=false: %s", msgGt1000)
+  Log.log(logLevel.Warn, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
-  Log.error(                "Direct normal test:                   " .. msgGt1000)
-  Log.log(logLevel.Error,   "Indirect normal test without full:    " .. msgGt1000)
-  Log.log(logLevel.Error,   "Indirect normal test with full=false: " .. msgGt1000, false)
-  Log.log(logLevel.Error,   "Indirect normal test with full=true:  " .. msgGt1000, true)
-  Log.log(logLevel.Error,   "Indirect normal test with full=0:     " .. msgGt1000, 0)
-  Log.error(                "Direct vararg test:                   %s", msgGt1000)
-  Log.log(logLevel.Error,   "Indirect vararg test with full=false: %s", false, msgGt1000)
-  Log.log(logLevel.Error,   "Indirect vararg test with full=true:  %s", true,  msgGt1000)
+  Log.error(                     "Direct normal test:                   " .. msgGt1000)
+  Log.log(logLevel.Error, nil,   "Indirect normal test with full=nil:   " .. msgGt1000)
+  Log.log(logLevel.Error, false, "Indirect normal test with full=false: " .. msgGt1000)
+  Log.log(logLevel.Error, true,  "Indirect normal test with full=true:  " .. msgGt1000)
+  Log.log(logLevel.Error, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
+  Log.error(       string.format("Direct format test:                   %s", msgGt1000))
+  Log.log(logLevel.Error, false, "Indirect format test with full=false: %s", msgGt1000)
+  Log.log(logLevel.Error, true,  "Indirect format test with full=true:  %s", msgGt1000)
 end
 
 function test_LoggingFromGlobalFun()
-  Log.info(               "Direct normal test from global function")
-  Log.error(              "Direct normal test from global function")
-  Log.log(logLevel.Info,  "Indirect normal test from global function")
-  Log.log(logLevel.Error, "Indirect normal test from global function")
+  Log.info(                      "Direct normal test from global function")
+  Log.error(                     "Direct normal test from global function")
+  Log.log(logLevel.Info,  false, "Indirect normal test from global function")
+  Log.log(logLevel.Error, false, "Indirect normal test from global function")
 end
 
 local function test_LoggingFromLocalFun()
-  Log.info(               "Direct normal test from local function")
-  Log.error(              "Direct normal test from local function")
-  Log.log(logLevel.Info,  "Indirect normal test from local function")
-  Log.log(logLevel.Error, "Indirect normal test from local function")
+  Log.info(                      "Direct normal test from local function")
+  Log.error(                     "Direct normal test from local function")
+  Log.log(logLevel.Info,  false, "Indirect normal test from local function")
+  Log.log(logLevel.Error, false, "Indirect normal test from local function")
+end
+
+local function IndirectTestWithPercentageChar()
+  Log.log(logLevel.Info, false,                  "Indirect test with percentage char %c without vararg")
+end
+local function test_LogMessageWithPercentageCharButWithoutVararg()
+  local ok, err
+  local errMsg = "bad argument #2 to 'format' (no value)"
+
+  ok, err = pcall(Log.info,                      "Direct test with percentage char %c without vararg")
+  if not ok then
+    Log.error(string.format("Expected: true nil <> Got: %s '%s'", tostring(ok), tostring(err)))
+  end
+
+  ok, err = pcall(Log.log, logLevel.Info, false, "Indirect test with percentage char %c without vararg")
+  if ok then
+    Log.error(string.format("Expected: false '%s' <> Got: %s %s",
+      errMsg, tostring(ok), tostring(err)))
+  elseif type(err) ~= "string" or err:match(":%d+: (.*)$") ~= errMsg then
+    Log.warn(string.format("Expected error: %s <> Got: %s", errMsg, tostring(err)))
+  end
+  ok, err = pcall(IndirectTestWithPercentageChar)
+  if ok then
+    Log.error(string.format("Expected: false '%s' <> Got: %s %s",
+      errMsg, tostring(ok), tostring(err)))
+  elseif type(err) ~= "string" or err:match(":%d+: (.*)$") ~= errMsg then
+    Log.warn(string.format("Expected error: %s <> Got: %s", errMsg, tostring(err)))
+  end
 end
 
 local function test_LoggingFunctions()
@@ -754,6 +774,8 @@ local function test_LoggingFunctions()
 
   test_LoggingFromGlobalFun()
   test_LoggingFromLocalFun()
+
+  test_LogMessageWithPercentageCharButWithoutVararg()
 end
 
 --#endregion **********
