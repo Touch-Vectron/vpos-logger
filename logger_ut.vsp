@@ -456,12 +456,7 @@ end
 ---@param vposName string? The name of the VPOS which uses this logger; defaults to "" if `nil`
 ---@return table self A new logger instance
 function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate, vposName)
-  -- create a new instance
-  local self = {
-    message = ""
-  }
-
-  ---@enum LogLevelValue # Value associated to the logging level (name).
+  --- Logging level value associated to the logging level (name).
   local LogLevelValue = {
     UNKNOWN   = -1,
     OFF       = 0,
@@ -486,6 +481,25 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     else                                     return LogLevelValue.UNKNOWN end
   end
 
+  --- Maps the given logging level value to a Syslog Protocol priority.
+  ---@param levelValue integer The logging level value
+  ---@return integer # The Syslog Protocol priority
+  --ATTENTION: keep this mapping function and all explicit priority usages in sync! 
+  local function mapLogLevelValueToPriority(levelValue)
+    if not levelValue then                         return Priority.USER_INFO
+    elseif levelValue == LogLevelValue.ERROR then  return Priority.USER_ERROR
+    elseif levelValue == LogLevelValue.WARN then   return Priority.USER_WARN
+    elseif levelValue == LogLevelValue.INFO then   return Priority.USER_INFO
+    elseif levelValue == LogLevelValue.DEBUG or
+           levelValue == LogLevelValue.TRACE then  return Priority.USER_DEBUG
+    else                                           return Priority.USER_INFO end
+  end
+
+  -- create a new instance
+  local self = {
+    message = ""
+  }
+
   ---@private
   local logTab =  {
     levelValue    = mapLogLevelNameToValue(level or logLevel.Info),
@@ -497,20 +511,6 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     scriptUpdate  = scriptUpdate or " ",
     vposName      = vposName or ""
   }
-
-  --- Maps the given logging level (name) to a Syslog Protocol priority.
-  ---@param levelName string The logging level (name)
-  ---@return integer # The Syslog Protocol priority
-  --ATTENTION: keep this mapping function and all explicit priority usages in sync! 
-  local function mapLogLevelToPriority(levelName)
-    if not levelName then                    return Priority.USER_INFO
-    elseif levelName == logLevel.Error then  return Priority.USER_ERROR
-    elseif levelName == logLevel.Warn then   return Priority.USER_WARN
-    elseif levelName == logLevel.Info then   return Priority.USER_INFO
-    elseif levelName == logLevel.Trace or
-           levelName == logLevel.Debug then  return Priority.USER_DEBUG
-    else                                     return Priority.USER_INFO end
-  end
 
   local function logData(message, full)
     message.datetime = dateISO()
@@ -636,7 +636,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
       end
       logTab.message      = msg
       logTab.messageLevel = messageLevel
-      logTab.priority     = mapLogLevelToPriority(messageLevel)
+      logTab.priority     = mapLogLevelValueToPriority(messageLevelValue)
       logData(logTab, full)
     end
   end
