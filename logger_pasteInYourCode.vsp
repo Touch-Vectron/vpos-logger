@@ -116,9 +116,8 @@ end
 ---@param scriptName string? The name of the script which uses this logger; defaults to " " if `nil`
 ---@param scriptVersion string? The version of the script which uses this logger; defaults to "0" if `nil`
 ---@param scriptUpdate string? The last update date of the script which uses this logger; defaults to " " if `nil`
----@param vposName string? The name of the VPOS which uses this logger; defaults to "" if `nil`
 ---@return table self A new logger instance
-function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate, vposName)
+function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate)
   --- Logging level value associated to the logging level (name).
   local LogLevelValue = {
     UNKNOWN   = -1,
@@ -172,7 +171,6 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     scriptName    = scriptName or " ",
     scriptVersion = scriptVersion or "0",
     scriptUpdate  = scriptUpdate or " ",
-    vposName      = vposName or ""
   }
 
   local function logData(message, full)
@@ -330,7 +328,6 @@ function readIni()
 
   local scriptName    = vpos.script.currentScript():getName() or ""
   local scriptVersion = tostring(vpos.tables.Table(806):getData(scriptName, 15) or 0)
-  local posName       = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
   local update        = vpos.tables.Table(806):getData(scriptName, 6)
   local scriptUpdate  = (type(update) == "vec.types.Time" and tostring(update)) or "plsUpdate VPOS"
 
@@ -351,7 +348,7 @@ function readIni()
       vpos.script.exitScript()
     end
     Log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, URL_PAPERTRAIL, scriptName,
-                 scriptVersion, scriptUpdate, posName)
+                 scriptVersion, scriptUpdate)
   end
 
   -- hide passwords from ini files so they are not logged

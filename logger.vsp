@@ -1442,11 +1442,11 @@ end
 --#region Initialization functions **********
 
 local function initSettings()
-    -- format the company name
-    COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
-    COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
-    COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
-    POS_NAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+  -- format the company name
+  COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
+  COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
+  COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
+  POS_NAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
 end
 
 local function initLogList()
