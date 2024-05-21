@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.8
+--!ScriptVersion: 2.9
 
 
 ------------------------------------------------------------------------------
@@ -240,7 +240,10 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
   function self.info(message, full)
     if logTab.levelValue >= LogLevelValue.INFO then
-      logTab.message      = message or ""
+      local info = debug.getinfo(2, "nl")
+      local msg  = message or ""
+      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      logTab.message      = msg
       logTab.messageLevel = logLevel.Info
       logTab.priority     = Priority.USER_INFO
       logData(logTab, full)

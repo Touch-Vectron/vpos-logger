@@ -79,7 +79,7 @@ OFFLINE_COUNT_FOR_SOCKET_RENEWING = 10 - 1
 ---NOTE: Should be > OFFLINE_COUNT_FOR_SOCKET_RENEWING !
 ONLINE_COUNT_FOR_SOCKET_RENEWING = 25 - 1
 
---- Name of this
+--- Name of this script.
 LOGGER_SCRIPT_NAME = "logger.vsp"
 --- Log file name of this logger script.
 LOGGER_LOG_NAME = "logger.log"
