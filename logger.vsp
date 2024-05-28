@@ -186,7 +186,7 @@ end
 --- 25).<br/>
 --- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
 --- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss±hh` (length 22).<br/>
----Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
+--- RAISES an error if the string is not an ISO 8601 date or a date part can't be converted.
 ---@param isoDate string The date in ISO 8601 format
 ---@return table # A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
@@ -673,7 +673,7 @@ end
 
 --- Decomposes/Unformats an offline message string/line into its parts, owning to the
 --- logger script.<br/>
---- Raises an error if the message can't be decomposed or a message part can't be converted.
+--- RAISES an error if the message can't be decomposed or a message part can't be converted.
 ---@param str string The message string/line
 ---@return table # A table with all of the message string parts:
 ---  * `scriptName` string: the script name, which originally logged this message 
@@ -693,7 +693,7 @@ local function decomposeLoggerOfflineMessageString(str)
 end
 
 --- Decomposes/Unformats an offline message string/line into its parts.<br/>
---- Raises an error if a message part can't be determined or converted.
+--- RAISES an error if a message part can't be determined or converted.
 ---@param str string The message string/line
 ---@return table # A table with all of the message string parts:
 ---  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`

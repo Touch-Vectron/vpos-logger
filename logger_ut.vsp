@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 1.3
+--!ScriptVersion: 1.4
 -- Copyright (C) 2024 Touch Vectron
 -- Script name: logger_ut.vsp
 -- Script description: Unit tests for logger (logger.vsp and logger_pasteInYourCode) 
@@ -735,7 +735,6 @@ function test_LoggingFromGlobalFun()
   Log.log(logLevel.Info,  false, "Indirect normal test from global function")
   Log.log(logLevel.Error, false, "Indirect normal test from global function")
 end
-
 local function test_LoggingFromLocalFun()
   Log.info(                      "Direct normal test from local function")
   Log.error(                     "Direct normal test from local function")
@@ -743,8 +742,63 @@ local function test_LoggingFromLocalFun()
   Log.log(logLevel.Error, false, "Indirect normal test from local function")
 end
 
-local function IndirectTestWithPercentageChar()
-  Log.log(logLevel.Info, false,                  "Indirect test with percentage char %c without vararg")
+function test_LoggingFromPcalledGlobalFun()
+  Log.info(                      "Direct normal test from pcalled global function")
+  Log.error(                     "Direct normal test from pcalled global function")
+  Log.log(logLevel.Info,  false, "Indirect normal test from pcalled global function")
+  Log.log(logLevel.Error, false, "Indirect normal test from pcalled global function")
+end
+local function test_LoggingFromPcalledLocalFun()
+  Log.info(                      "Direct normal test from pcalled local function")
+  Log.error(                     "Direct normal test from pcalled local function")
+  Log.log(logLevel.Info,  false, "Indirect normal test from pcalled local function")
+  Log.log(logLevel.Error, false, "Indirect normal test from pcalled local function")
+end
+
+function test_LoggingFromPcalledWrappedGlobalFun1(n)
+  Log.info(                      "Direct normal test from pcalled and wrapped global function1")
+  Log.error(                     "Direct normal test from pcalled and wrapped global function1")
+  Log.log(logLevel.Info,  false, "Indirect normal test from pcalled and wrapped global function1")
+  Log.log(logLevel.Error, false, "Indirect normal test from pcalled and wrapped global function1")
+end
+local function test_LoggingFromPcalledWrappedLocalFun1(n)
+  Log.info(                      "Direct normal test from pcalled and wrapped local function1")
+  Log.error(                     "Direct normal test from pcalled and wrapped local function1")
+  Log.log(logLevel.Info,  false, "Indirect normal test from pcalled and wrapped local function1")
+  Log.log(logLevel.Error, false, "Indirect normal test from pcalled and wrapped local function1")
+end
+
+function test_LoggingFromPcalledWrappedGlobalFun2(n)
+  Log.info(                      "Direct normal test from pcalled and wrapped global function2")
+  Log.error(                     "Direct normal test from pcalled and wrapped global function2")
+  Log.log(logLevel.Info,  false, "Indirect normal test from pcalled and wrapped global function2")
+  Log.log(logLevel.Error, false, "Indirect normal test from pcalled and wrapped global function2")
+  return n + 1
+end
+local function test_LoggingFromPcalledWrappedLocalFun2(n)
+  Log.info(                      "Direct normal test from pcalled and wrapped local function2")
+  Log.error(                     "Direct normal test from pcalled and wrapped local function2")
+  Log.log(logLevel.Info,  false, "Indirect normal test from pcalled and wrapped local function2")
+  Log.log(logLevel.Error, false, "Indirect normal test from pcalled and wrapped local function2")
+  return n + 1
+end
+
+--- Logging tests from all kinds of function scope and call variations.
+local function test_LoggingFromAllFunUsageVariations()
+  test_LoggingFromGlobalFun()
+  test_LoggingFromLocalFun()
+
+  pcall(test_LoggingFromPcalledGlobalFun)
+  pcall(test_LoggingFromPcalledLocalFun)
+
+  pcall(function() test_LoggingFromPcalledWrappedGlobalFun1() end)
+  pcall(function() test_LoggingFromPcalledWrappedLocalFun1() end)
+  pcall(function(n) n = test_LoggingFromPcalledWrappedGlobalFun2(n); return n end, 1)
+  pcall(function(n) n = test_LoggingFromPcalledWrappedLocalFun2(n);  return n end, 2)
+end
+
+local function indirectTestWithPercentageChar()
+  Log.log(logLevel.Info, false,                  "Indirect test2 with percentage char %c without vararg")
 end
 local function test_LogMessageWithPercentageCharButWithoutVararg()
   local ok, err
@@ -755,14 +809,14 @@ local function test_LogMessageWithPercentageCharButWithoutVararg()
     Log.error(string.format("Expected: true nil <> Got: %s '%s'", tostring(ok), tostring(err)))
   end
 
-  ok, err = pcall(Log.log, logLevel.Info, false, "Indirect test with percentage char %c without vararg")
+  ok, err = pcall(Log.log, logLevel.Info, false, "Indirect test1 with percentage char %c without vararg")
   if ok then
     Log.error(string.format("Expected: false '%s' <> Got: %s %s",
       errMsg, tostring(ok), tostring(err)))
   elseif type(err) ~= "string" or err:match(":%d+: (.*)$") ~= errMsg then
     Log.warn(string.format("Expected error: %s <> Got: %s", errMsg, tostring(err)))
   end
-  ok, err = pcall(IndirectTestWithPercentageChar)
+  ok, err = pcall(indirectTestWithPercentageChar)
   if ok then
     Log.error(string.format("Expected: false '%s' <> Got: %s %s",
       errMsg, tostring(ok), tostring(err)))
@@ -775,8 +829,7 @@ local function test_LoggingFunctions()
   test_QuickLogging()
   test_AllLoggingVariations()
 
-  test_LoggingFromGlobalFun()
-  test_LoggingFromLocalFun()
+  test_LoggingFromAllFunUsageVariations()
 
   test_LogMessageWithPercentageCharButWithoutVararg()
 end
