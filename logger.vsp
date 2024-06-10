@@ -317,7 +317,7 @@ end
 --- * a "7.1.20" version gives     7'001'020'000;
 --- * a "7.1.20.333" version gives 7'001'020'333;
 ---@param versionStr string? # The version string
----@return number? # The version number on success, otherwise `0`
+---@return number # The version number on success, otherwise `0`
 local function convertVersionStringToNumber(versionStr)
   if isNilOrWhitespaceString(versionStr) then return 0 end
   ---@cast versionStr string

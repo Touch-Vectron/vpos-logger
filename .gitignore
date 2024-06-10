@@ -1,4 +1,8 @@
 # ignored files by name and extension
+Thumbs.db
+*.swo
+*.swp
+*.swn
+testme*
 
 # ignored files by path
-.vscode/settings.json
