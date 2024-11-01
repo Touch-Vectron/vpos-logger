@@ -59,7 +59,7 @@ Log = {}
 -----------------------------------------------------------------------------
 
 --- Formats the given or current date according to the ISO 8601 (long) format
---- `yyyy-mm-ddThh:mm:ssÂ±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
+--- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
 --- (only the first 19 out of the 25 characters).<br/>
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
