@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.7
+--!ScriptVersion: 2.9
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
 -- Date: 04/2024
@@ -169,14 +169,12 @@ IniSettingsForUploadingLogs = nil
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
 ---@diagnostic disable-next-line: undefined-doc-name
----@param date vpos.datetime.DateTime? Date to be formatted; defaults to the current date if `nil`
+---@param date table? A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
 ---@return string # The formatted given or current date
 local function dateISO(date)
   date = date or vpos.datetime.DateTime()
----@diagnostic disable: undefined-field
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
----@diagnostic enable: undefined-field
 
   return string.format("%s-%02d-%02dT%02d:%02d:%02d",
                        tostring(year), month, day, hour, minute, second)
@@ -1264,15 +1262,14 @@ local function uploadLogFileLine(line)
   local ok, decomposedMsg = pcall(decomposeUploadingLogFileLine, line)
   if not ok then -- there can be multi-line messages, messages with unknown format etc.
     msgBody = trimStringEndNewline(line)
-    ---@cast msgBody string
 
     --NOTE: the log line failed to decompose, so first check if it contains only whitespaces
     if isNilOrWhitespaceString(msgBody) then
       resetLastScriptNameAndMessageLevelOfUploadingLogFile()
       return false
-    else
-      changeLastMessageLevelOfUploadingLogFileFromTraceToDebug()
     end
+    ---@cast msgBody string
+    changeLastMessageLevelOfUploadingLogFileFromTraceToDebug()
     ok, decomposedDate = checkLineRecencyThenUpdateLastDateOfUploadingLogFile(UploadingLogFile.lastIsoDate)
     if not ok then return false end
 
