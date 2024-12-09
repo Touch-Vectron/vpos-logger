@@ -85,15 +85,12 @@ assertAndOrLog = function(condition, errMsg) assert(condition, errMsg) end
 --- (only the first 19 out of the 25 characters).<br/>
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
----@diagnostic disable-next-line: undefined-doc-name
----@param date vpos.datetime.DateTime? Date to be formatted; defaults to the current date if `nil`
+---@param date table? A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
 ---@return string # The formatted given or current date
 local function dateISO(date)
   date = date or vpos.datetime.DateTime()
----@diagnostic disable: undefined-field
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
----@diagnostic enable: undefined-field
 
   return string.format("%s-%02d-%02dT%02d:%02d:%02d",
                        tostring(year), month, day, hour, minute, second)
@@ -107,7 +104,7 @@ end
 ---@param isoDate string The date in ISO 8601 format
 ---@return table # A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
----   * `hours`, `minute`, `second` integer
+---   * `hour`, `minute`, `second` integer
 ---   * `timezoneHour`, `timezoneMinute` integer 
 local function decomposeIsoDate(isoDate)
   assertAndOrLog(isoDate)

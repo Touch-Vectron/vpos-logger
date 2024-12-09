@@ -1,8 +1,8 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.9
+--!ScriptVersion: 2.10
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
--- Date: 04/2024
+-- Date: 12/2024
 -- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
 
 
@@ -48,6 +48,8 @@ POS_NAME = ""
 ENABLE_LOGGER_ASSERTS = false
 --- Switch to enable debugging logs for the logger itself. SHOULD be used sparsely!
 ENABLE_LOGGER_LOGS = false
+--- Switch to enable analytics for the logger itself. SHOULD be used sparsely!
+ENABLE_LOGGER_ANALYTICS = true
 
 --- Interval in milliseconds, at which the script timer triggers calls for logging the logs.
 LOG_TIMER_INTERVAL = 320
@@ -62,7 +64,7 @@ MAX_LOG_LIST_SIZE_BEFORE_DUMP = 150
 ---   3'600'000 ms / LOG_TIMER_INTERVAL * MAX_LOG_LIST_SEND_LINES;<br/>
 --- reference value: MAX_REF_LOG_LINES_BANDWITDH = 3'600'000 / 300 * 10 = 120'000 logs/hour;<br/>
 --- current value:   MAX_LOG_LINES_BANDWITDH     = 3'600'000 / 320 * 11 = 123'750 logs/hour.<br/>
----NOTE: Adjust the (current) values so that the following inequality holds true
+--- NOTE: Adjust the (current) values so that the following inequality holds true
 ---   MAX_LOG_LINES_BANDWITDH - MAX_REF_LOG_LINES_BANDWITDH > MAX_UPLOAD_LOG_LINES_BANDWIDTH !
 MAX_LOG_LIST_SEND_LINES = 11
 --- Count of failed online sends with fallbacks to file, after which the log socket is
@@ -76,8 +78,18 @@ OFFLINE_COUNT_FOR_SOCKET_RENEWING = 10 - 1
 --- The minimum "log socket online renew interval" in milliseconds is:<br/>
 ---   LOG_TIMER_INTERVAL / MAX_LOG_LIST_SEND_LINES * (ONLINE_COUNT_FOR_SOCKET_RENEWING + 1);<br/>
 --- current value: LOG_SOCKET_OFFLINE_RENEW_INTERVAL = 320 / 11 * 25 ~= 727 ms.<br/>
----NOTE: Should be > OFFLINE_COUNT_FOR_SOCKET_RENEWING !
+--- NOTE: Should be > OFFLINE_COUNT_FOR_SOCKET_RENEWING !
 ONLINE_COUNT_FOR_SOCKET_RENEWING = 25 - 1
+
+if ENABLE_LOGGER_ANALYTICS then
+  --- The minimum log list/queue size, as in either the current size or the previous marked
+  --- size, at which to do an analysis.
+  MIN_LOG_LIST_SIZE_FOR_ANALYTICS = 50
+  --- The minimum difference in log list/queue size relative to the last analytics message,
+  --- to log a new analytics message.<br/>
+  --- NOTE: Must be > MAX_LOG_LIST_SEND_LINES !
+  MIN_LOG_LIST_SIZE_DIFF_FOR_ANALITICS = 15
+end
 
 --- Name of this script.
 LOGGER_SCRIPT_NAME = "logger.vsp"
@@ -91,18 +103,18 @@ IS_UPLOADING_LOGS_SUPPORTED = false
 --- Flag indicating if uploading offline logs is supported on the current VPOS.
 MIN_VPOS_VERSION_FOR_UPLOADING_LOGS = "6.3.7.0"
 --- Default log type for uploading log files without a corresponding ".ini" file.
----NOTE: This is a per log file, not a per log line constant, and also applies for the logger!
+--- NOTE: This is a per log file, not a per log line constant, and also applies for the logger!
 LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI = LogType.ONLINE
 --- Maximum logging list/queue size allowed for uploading offline saved log lines.
-MAX_LOG_LIST_SIZE_FOR_UPLOAD = 100
+MAX_LOG_LIST_SIZE_FOR_UPLOAD = 50
 --- Maximum logging list/queue size allowed after an uploading round.
-MAX_LOG_LIST_SIZE_AFTER_UPLOAD = 120
+MAX_LOG_LIST_SIZE_AFTER_UPLOAD = 70
 --- Maximum log lines to upload per upload round (if the logging list/queue size allows).
 --- The maximum "upload log lines bandwidth" is:<br/>
 ---   360'000 ms / UPLOAD_ROUND_INTERVAL * MAX_LOG_LINES_TO_UPLOAD;<br/>
---- current value: MAX_UPLOAD_LOG_LINES_BANDWIDTH = 3'600'000 / 150'000 = 960 logs/hour.<br/>
---- Example: A 3000 lines log file is sent the fastest in 3000 / 960 = 3.125 hours = 3h7m30s.
-MAX_LOG_LINES_TO_UPLOAD = 40
+--- current value: MAX_UPLOAD_LOG_LINES_BANDWIDTH = 3'600'000 / 150'000 * 25 = 600 logs/hour.<br/>
+--- Example: A 3000 lines log file is sent the fastest in 3000 / 600 = 5 hours.
+MAX_LOG_LINES_TO_UPLOAD = 25
 --- The chunk size to be uploaded from an offline log file, in an uploaded round. More
 --- than this value might be read and processed.<br/>
 LOG_CHUNK_SIZE_TO_UPLOAD = 2^13 -- 8 KB
@@ -144,6 +156,11 @@ LogList = {}
 --- handle and a file size function.
 LogFile = nil
 
+if ENABLE_LOGGER_ANALYTICS then
+  --- The log list/queue size successfully marked (analyzed and logged) in a previous analysis.
+  PrevMarkedQueueSize = 0
+end
+
 --- The socket for sending the log lines/messages online.
 LogSocket = nil
 --- Count the number of failed online sends with fallbacks to file.
@@ -168,7 +185,6 @@ IniSettingsForUploadingLogs = nil
 --- (only the first 19 out of the 25 characters).<br/>
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
----@diagnostic disable-next-line: undefined-doc-name
 ---@param date table? A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
 ---@return string # The formatted given or current date
 local function dateISO(date)
@@ -188,7 +204,7 @@ end
 ---@param isoDate string The date in ISO 8601 format
 ---@return table # A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
----   * `hours`, `minute`, `second` integer
+---   * `hour`, `minute`, `second` integer
 ---   * `timezoneHour`, `timezoneMinute` integer 
 local function decomposeIsoDate(isoDate)
   assertAndOrLog(isoDate)
@@ -482,8 +498,7 @@ local function getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
   return removeLogBackupSuffixFromBaseFileName(baseFileName)
 end
 
---- Constants defining which file hosts are allowed.<br/>
---NOTE: defining this here, because it's exclusively used in the next function
+--- Constants defining which file hosts are allowed.
 local AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
 
 --- Checks for the existance of the file.
@@ -935,7 +950,7 @@ end
 --- Sends and pops the head element(/message) of the queue, and updates the
 --- script metadata.
 ---@param q table The queue
-function sendFromQueue(q)
+local function sendFromQueue(q)
   local ok, message = pcall(ListGetRight, q)
   assertAndOrLog(ok, message)
   message.qLast  = q.last
@@ -974,12 +989,30 @@ function sendFromQueue(q)
   end
 end
 
+--- Analyzes the current log list/queue and logs a message if pertinent. 
+---@param queueSize number The current log list/queue size
+---@param sendLineCount number The current count of log lines / message strings to be sent
+local analyzeQueue = function(queueSize, sendLineCount) end
+if ENABLE_LOGGER_ANALYTICS then
+  analyzeQueue = function (queueSize, sendLineCount)
+    if (queueSize           < MIN_LOG_LIST_SIZE_FOR_ANALYTICS and
+        PrevMarkedQueueSize < MIN_LOG_LIST_SIZE_FOR_ANALYTICS) or
+       math.abs(queueSize - PrevMarkedQueueSize) < MIN_LOG_LIST_SIZE_DIFF_FOR_ANALITICS then
+      return
+    end
+
+    local stats = string.format("size %d, sending %d lines", queueSize, sendLineCount)
+    logDev("QUEUE ANALYTICS", stats)
+    PrevMarkedQueueSize = queueSize
+  end
+end
+
 --- Manages the queue.
 ---@param q table The queue
 function handleQueue(q)
   if not isQueueEmpty(q) then
     local qSize = queueSize(q)
-    --showStatus("Q:"..tostring(qSize))
+    --showStatus("QSize " .. tostring(qSize))
     if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
       local ok, resp = pcall(dumpQueue, q)
       assert(ok, resp)
@@ -991,7 +1024,7 @@ function handleQueue(q)
         logSize      = 300,
         priority     = Priority.USER_WARN,
         messageLevel = logLevel.Warn,
-        message      = "DUMPED & ERASED QUEUE: " .. tostring(resp)
+        message      = string.format("DUMPED & ERASED QUEUE: size %d, %s B", qSize, tostring(resp))
       })
       local resp2
       ok, resp2 = pcall(writeMD, q)
@@ -999,6 +1032,7 @@ function handleQueue(q)
     else
       local limit
       if qSize < MAX_LOG_LIST_SEND_LINES then limit = qSize else limit = MAX_LOG_LIST_SEND_LINES end
+      analyzeQueue(qSize, limit)
       for i = 1, limit do
         local ok, resp = pcall(sendFromQueue, q)
         assert(ok, resp)
