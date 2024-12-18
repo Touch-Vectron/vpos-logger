@@ -1031,10 +1031,9 @@ function handleQueue(q)
       ok, resp2 = pcall(writeMD, q)
       assertAndOrLog(ok, resp2)
     else
-      local limit
-      if qSize < MAX_LOG_LIST_SEND_LINES then limit = qSize else limit = MAX_LOG_LIST_SEND_LINES end
-      analyzeQueue(qSize, limit)
-      for i = 1, limit do
+      local sendCount = (qSize < MAX_LOG_LIST_SEND_LINES and qSize) or MAX_LOG_LIST_SEND_LINES
+      analyzeQueue(qSize, sendCount)
+      for i = 1, sendCount do
         local ok, resp = pcall(sendFromQueue, q)
         assert(ok, resp)
         if not ok then
