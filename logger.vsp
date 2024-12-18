@@ -49,7 +49,7 @@ ENABLE_LOGGER_ASSERTS = false
 --- Switch to enable debugging logs for the logger itself. SHOULD be used sparsely!
 ENABLE_LOGGER_LOGS = false
 --- Switch to enable analytics for the logger itself. SHOULD be used sparsely!
-ENABLE_LOGGER_ANALYTICS = true
+ENABLE_LOGGER_ANALYTICS = false
 
 --- Interval in milliseconds, at which the script timer triggers calls for logging the logs.
 LOG_TIMER_INTERVAL = 320
@@ -1002,7 +1002,7 @@ if ENABLE_LOGGER_ANALYTICS then
     end
 
     local stats = string.format("size %d, sending %d lines", queueSize, sendLineCount)
-    logDev("QUEUE ANALYTICS", stats)
+    logDev("QUEUE", stats)
     PrevMarkedQueueSize = queueSize
   end
 end
