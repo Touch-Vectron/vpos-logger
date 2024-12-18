@@ -385,7 +385,7 @@ end
 
 --- Logs a developer message for the logger with the format "`devMsg`: `errMsg`".
 ---@param devMsg string The developer message; should always be given by the developer
----@param errMsg any The error message or number; might be `nil` only exceptionally
+---@param errMsg string|number? The error message or number; might be `nil` exceptionally
 local function logDev(devMsg, errMsg)
   ListPushLeft({
     datetime     = dateISO(),
@@ -534,23 +534,22 @@ end
 ---@param fn2 string The destination file name/path
 ---@param overwrite boolean Flag to overwrite an existing destination file
 ---@return boolean # `true` if moving/renaming succeeded, otherwise `false`
----@return string|number? # `nil` on success, otherwise an error message or number
+---@return string|integer # 0 on success, otherwise an error message or number
 local function file_rename(fn1, fn2, overwrite)
   if not file_exists(fn1) then
     return false, string.format("Source file %s is missing!", fn1 or "")
   end
   if file_exists(fn2) and not overwrite then
-    return false, string.format("Destination file %s already exists!", fn2)
+    return false, string.format("Destination file %s already exists!", fn2 or "")
   end
 
-  local ok, err = vpos.renameFile(fn1, fn2)
+  local ok, errNo = vpos.renameFile(fn1, fn2) ---@type boolean, integer
   -- if the error is DestinationFileExists and we have to overwrite
-  if not ok and err == 1 and overwrite then
-    ok, err = vpos.file.delete(fn2)
-    ok, err = vpos.renameFile(fn1, fn2)
-    return ok, err
+  if not ok and errNo == 1 and overwrite then
+    ok, errNo = vpos.file.delete(fn2) ---@type boolean, integer
+    ok, errNo = vpos.renameFile(fn1, fn2) ---@type boolean, integer
   end
-  return ok, err
+  return ok, errNo
 end
 
 --- Gets the file size as a script, by interogating VPOS.
@@ -567,10 +566,10 @@ end
 ---@param filePath string The log file path
 ---@param logErrors boolean Flag for logging any encountered error
 ---@return boolean ok `true` if the file deletion succeeded, otherwise `false`
----@return number errNo A `vpos.file.Error` number
+---@return integer errNo A `vpos.file.Error` number: 0 on success, otherwise &ne; 0
 local function deleteLogFile(filePath, logErrors)
   assertAndOrLog(filePath)
-  local ok, errNo = vpos.file.delete(filePath)
+  local ok, errNo = vpos.file.delete(filePath) ---@type boolean, integer
   if logErrors and not ok then logDev("Can't delete file " .. filePath, errNo) end
   return ok, errNo
 end
@@ -612,10 +611,12 @@ local function getLogFile(scriptName, logSizeInKB)
     local ok, frOk, frErr = pcall(file_rename, filePath, backupFilePath, true)
     if not ok then -- the log file wasn't renamed, `frOk` is `pcall`s error message here
       devMsg = "Can't rename file " .. fileName .. " to " .. backupFilePath
-      if curSize >= fileSize then logDev(devMsg, frOk) else logDebug(devMsg .. ": " .. frOk) end
+      if curSize >= fileSize then logDev(devMsg, frOk --[[@as string]])
+      else                        logDebug(devMsg .. ": " .. frOk) end
     elseif not frOk then -- the log file wasn't renamed
       devMsg = "Can't rename file " .. fileName .. " to " .. backupFilePath
-      if curSize >= fileSize then logDev(devMsg, frErr) else logDebug(devMsg .. ": " .. frErr) end
+      if curSize >= fileSize then logDev(devMsg, frErr)
+      else                        logDebug(devMsg .. ": " .. frErr) end
 
       --NOTE: for all below code, we don't need to check if `UploadingLogFile.fileName`
       -- exists (is non-nil), because checking equality against a valid string won't
@@ -636,7 +637,7 @@ local function getLogFile(scriptName, logSizeInKB)
     -- write a new log file
     fh, errMsg = io.open(filePath, "w")
     if not fh then
-      error("Can't open file " .. fileName .. " in W mode: " .. errMsg)
+      error("Can't open file " .. fileName .. " in W mode: " .. tostring(errMsg))
     elseif UploadingLogFile.fileName == fileName then -- reset the uploading log file
       UploadingLogFile = {}
     end
@@ -908,7 +909,7 @@ end
 function getInitialQueue()
   local ok, initMetaData = pcall(readMD)
   if not ok then -- `initMetaData` is `pcall`s error message here
-    logDev("Can't read metadata", initMetaData)
+    logDev("Can't read metadata", initMetaData --[[@as string]])
   end
   if ok and initMetaData and not isQueueEmpty(initMetaData) then
     return initMetaData
@@ -972,7 +973,7 @@ local function sendFromQueue(q)
           logSize      = 300,
           priority     = Priority.USER_ERROR,
           messageLevel = logLevel.Error,
-          message      = err,
+          message      = tostring(err),
         })
       end
     else
@@ -983,7 +984,7 @@ local function sendFromQueue(q)
         logSize      = 300,
         priority     = Priority.USER_ERROR,
         messageLevel = logLevel.Error,
-        message      = err,
+        message      = tostring(err),
       })
     end
   end
@@ -1044,7 +1045,7 @@ function handleQueue(q)
             logSize      = 300,
             priority     = Priority.USER_ERROR,
             messageLevel = logLevel.Error,
-            message      = resp
+            message      = tostring(resp),
           })
         end
       end
@@ -1242,9 +1243,8 @@ end
 ---@see decomposeIsoDate 
 local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
   local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
-  if not ok then
-    -- `decomposedDate` is `pcall`s error message here
-    logDev("Can't decompose " .. isoDate .. " as ISO date", decomposedDate)
+  if not ok then -- `decomposedDate` is `pcall`s error message here
+    logDev("Can't decompose " .. isoDate .. " as ISO date", decomposedDate --[[@as string]])
     -- upon errors consider the log line as being recent
     return true, nil
   end
@@ -1461,10 +1461,10 @@ function onLogTimer()
   local ok, err
   if IS_UPLOADING_LOGS_SUPPORTED then
     ok, err = pcall(uploadOfflineLogs)
-    if not ok then logDev("Error while uploading offline logs", err) end
+    if not ok then logDev("Error while uploading offline logs", tostring(err)) end
   end
   ok, err = pcall(handleQueue, LogList)
-  if not ok then logDev("Error while handling log queue", err) end
+  if not ok then logDev("Error while handling log queue", tostring(err)) end
 end
 
 --#endregion **********
@@ -1487,7 +1487,7 @@ local function initLogList()
   if not ok then
     ok, LogList = pcall(getInitialQueue)
     if not ok then -- `LogList` is `pcall`s error message here
-      logDev("Can't get initial log queue", LogList)
+      logDev("Can't get initial log queue", LogList --[[@as string]])
       LogList = {first = 0, last = -1}
     end
   end
