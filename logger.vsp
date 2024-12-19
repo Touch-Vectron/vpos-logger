@@ -1012,17 +1012,16 @@ end
 
 --- Analyzes the current log list/queue and logs a message if pertinent. 
 ---@param queueSize number The current log list/queue size
----@param sendLineCount number The current count of log lines / message strings to be sent
-local analyzeQueue = function(queueSize, sendLineCount) end
+local analyzeQueue = function(queueSize) end
 if ENABLE_LOGGER_ANALYTICS then
-  analyzeQueue = function (queueSize, sendLineCount)
+  analyzeQueue = function (queueSize)
     if (queueSize           < MIN_LOG_LIST_SIZE_FOR_ANALYTICS and
         PrevMarkedQueueSize < MIN_LOG_LIST_SIZE_FOR_ANALYTICS) or
        math.abs(queueSize - PrevMarkedQueueSize) < MIN_LOG_LIST_SIZE_DIFF_FOR_ANALITICS then
       return
     end
 
-    local stats = string.format("size %d, sending %d lines", queueSize, sendLineCount)
+    local stats = string.format("size %d", queueSize)
     logDev("QUEUE", stats)
     PrevMarkedQueueSize = queueSize
   end
@@ -1052,7 +1051,7 @@ function handleQueue(q)
       assertAndOrLog(ok, err)
     else
       local sendCount = (qSize < MAX_LOG_LIST_SEND_LINES and qSize) or MAX_LOG_LIST_SEND_LINES
-      analyzeQueue(qSize, sendCount)
+      analyzeQueue(qSize)
       for i = 1, sendCount do
         local ok, err = pcall(sendFromQueue, q)
         assert(ok, err)
