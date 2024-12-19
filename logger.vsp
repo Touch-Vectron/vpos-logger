@@ -70,16 +70,16 @@ MAX_LOG_LIST_SEND_LINES = 11
 --- Count of failed online sends with fallbacks to file, after which the log socket is
 --- renewed.<br/>
 --- The minimum "log socket offline renew interval" in milliseconds is:<br/>
----   LOG_TIMER_INTERVAL / MAX_LOG_LIST_SEND_LINES * (OFFLINE_COUNT_FOR_SOCKET_RENEWING + 1);<br/>
+---   LOG_TIMER_INTERVAL / MAX_LOG_LIST_SEND_LINES * OFFLINE_COUNT_FOR_SOCKET_RENEWING;<br/>
 --- current value: LOG_SOCKET_OFFLINE_RENEW_INTERVAL = 320 / 11 * 10 ~= 291 ms.
-OFFLINE_COUNT_FOR_SOCKET_RENEWING = 10 - 1
+OFFLINE_COUNT_FOR_SOCKET_RENEWING = 10
 --- Count of truly or apparently successful online sends, after which the log socket is
 --- renewed.<br/>
 --- The minimum "log socket online renew interval" in milliseconds is:<br/>
----   LOG_TIMER_INTERVAL / MAX_LOG_LIST_SEND_LINES * (ONLINE_COUNT_FOR_SOCKET_RENEWING + 1);<br/>
+---   LOG_TIMER_INTERVAL / MAX_LOG_LIST_SEND_LINES * ONLINE_COUNT_FOR_SOCKET_RENEWING;<br/>
 --- current value: LOG_SOCKET_OFFLINE_RENEW_INTERVAL = 320 / 11 * 25 ~= 727 ms.<br/>
 --- NOTE: Should be > OFFLINE_COUNT_FOR_SOCKET_RENEWING !
-ONLINE_COUNT_FOR_SOCKET_RENEWING = 25 - 1
+ONLINE_COUNT_FOR_SOCKET_RENEWING = 25
 
 if ENABLE_LOGGER_ANALYTICS then
   --- The minimum log list/queue size, as in either the current size or the previous marked
@@ -179,6 +179,25 @@ IniSettingsForUploadingLogs = nil
 
 
 --#region Helper functions **********
+
+--- Checks if the given input is a table.
+---@param t any The input to be checked as table
+---@return boolean # `true` if the input is a table, otherwise `false`
+local function isTable(t)  return t ~= nil and type(t) == "table"  end
+
+--- Checks if the given input is an empty table.
+---@param t any The input to be checked as table
+---@return boolean # `true` if the input is an empty table, otherwise `false`
+local function isEmptyTable(t)
+  return t ~= nil and type(t) == "table" and next(t) == nil
+end
+
+--- Checks if the given input is a non-empty table.
+---@param t any The input to be checked as table
+---@return boolean # `true` if the input is a non-empty table, otherwise `false`
+local function isNonEmptyTable(t)
+  return t ~= nil and type(t) == "table" and next(t) ~= nil
+end
 
 --- Formats the given or current date according to the ISO 8601 (long) format
 --- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
@@ -841,7 +860,7 @@ end
 
 --- Gets the queue size.
 ---@param q table The queue
----@return number # The queue size
+---@return integer # The queue size
 function queueSize(q)
   return math.abs(q.first) - math.abs(q.last) + 1
 end
@@ -851,7 +870,7 @@ end
 ---@return boolean # `true` if the queue is empty, otherwise `false`
 function isQueueEmpty(q)
   if not q.first or not q.last then return true end
-  if q.first > q.last then return true else return false end
+  return q.first > q.last
 end
 
 --- Erases all elements from the queue.
@@ -964,7 +983,8 @@ local function sendFromQueue(q)
       ok, err = pcall(ListPopRight, q)
       assert(ok, err)
       if ok then
-        writeMD(q)
+        ok, err = pcall(writeMD, q, b)
+        assertAndOrLog(ok, err)
       else
         ListPushLeft({
           scriptName   = LOGGER_SCRIPT_NAME,
@@ -1027,15 +1047,15 @@ function handleQueue(q)
         messageLevel = logLevel.Warn,
         message      = string.format("DUMPED & ERASED QUEUE: size %d, %s B", qSize, tostring(resp))
       })
-      local resp2
-      ok, resp2 = pcall(writeMD, q)
-      assertAndOrLog(ok, resp2)
+      local err
+      ok, err = pcall(writeMD, q, b)
+      assertAndOrLog(ok, err)
     else
       local sendCount = (qSize < MAX_LOG_LIST_SEND_LINES and qSize) or MAX_LOG_LIST_SEND_LINES
       analyzeQueue(qSize, sendCount)
       for i = 1, sendCount do
-        local ok, resp = pcall(sendFromQueue, q)
-        assert(ok, resp)
+        local ok, err = pcall(sendFromQueue, q)
+        assert(ok, err)
         if not ok then
           ListPushLeft({
             scriptName   = LOGGER_SCRIPT_NAME,
@@ -1044,7 +1064,7 @@ function handleQueue(q)
             logSize      = 300,
             priority     = Priority.USER_ERROR,
             messageLevel = logLevel.Error,
-            message      = tostring(resp),
+            message      = tostring(err),
           })
         end
       end
