@@ -81,6 +81,13 @@ OFFLINE_COUNT_FOR_SOCKET_RENEWING = 10
 --- NOTE: Should be > OFFLINE_COUNT_FOR_SOCKET_RENEWING !
 ONLINE_COUNT_FOR_SOCKET_RENEWING = 25
 
+--- The logging circular buffer capacity for sent lines/messages, in case they need relogging.
+LOG_SENT_BUFFER_CAPACITY = ONLINE_COUNT_FOR_SOCKET_RENEWING
+--- The maximum tries for relogging a log line / message string, practically denoting the max.
+--- count that a log line was possibly dropped during an online send and requeued for sending.
+--- Valid range [1, 10].
+MAX_LOG_LINE_RELOG_TRIES = 5
+
 if ENABLE_LOGGER_ANALYTICS then
   --- The minimum log list/queue size, as in either the current size or the previous marked
   --- size, at which to do an analysis.
@@ -150,8 +157,10 @@ UNKNOWN_DATETIME = "D?T?"
 
 --#region Global variables **********
 
---- The logging list/queue containing all current messages to be logged.
+--- The logging list/queue containing all current lines/messages to be logged.
 LogList = {}
+--- The logging circular buffer for sent lines/messages, in case they need relogging.  
+LogSentBuffer = {}
 --- The structured information about the current offline log file, like the file
 --- handle and a file size function.
 LogFile = nil
@@ -733,6 +742,151 @@ end
 --#endregion **********
 
 
+--#region Log circular sent buffer functions **********
+
+--- Gets the circular buffer size.
+---@param b table The buffer
+---@return integer # The buffer size
+local function circularBufferSize(b) return b.size end
+
+--- Checks if the circular buffer is empty.
+---@param b table The buffer
+---@return boolean # `true` if the buffer is empty, otherwise `false`
+local function isCircularBufferEmpty(b)
+  if not b.size or not b.last then return true end
+  return b.size <= 0
+end
+
+--- Pushes a message to the circular buffer.
+---@param b table The buffer
+local function circularBufferPush(b, message)
+  if not message then return end
+
+  local size = b.size
+  local last = b.last
+  if size >= LOG_SENT_BUFFER_CAPACITY then
+    b[last] = nil
+    b[last] = message
+    last = last + 1
+    if last >= LOG_SENT_BUFFER_CAPACITY then last = 0 end
+    b.last = last
+  else
+    local first = last + size
+    if first >= LOG_SENT_BUFFER_CAPACITY then first = first - LOG_SENT_BUFFER_CAPACITY end
+    b[first] = message
+    b.size = size + 1
+  end
+end
+
+--- Decomposes the given ISO date of a log line / message, which is to be relogged.
+---@param isoDate string? 
+---@return table? decomposedDate The decomposed ISO date on success, otherwise `nil` <br/>
+---@see decomposeIsoDate 
+local function decomposeReloggedMessageDateTime(isoDate)
+  local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
+  if not ok then -- `decomposedDate` is `pcall`s error message here
+    local errMsg = getErrorReason(tostring(decomposedDate))
+    logDev("Can't decompose `" .. isoDate .. "` as ISO date", errMsg)
+    -- upon errors consider that the date-time is unknown
+    return nil
+  end
+  return decomposedDate
+end
+
+--- First determines if a log message body starts with a touch-mark, namely a date-time in
+--- `dd.mm.yyyy_hh:mm:ss` format (denoting the generated at timestamp) and flagged upload
+--- try and relog try numbers (with possibly other flags in the future). If not, then it
+--- prepends it and the corresponding log line can be requeued. Else (if the message body
+--- contains the touch-mark), the log line can be requeued if the max. relog tries hasn't
+--- been reached, in which case the relog try number is updated.<br/>
+--- If the given `datetime` is `nil` and the message body doesn't contain a touch-mark,
+--- then `UNKNOWN_DATETIME` is used.
+--- 
+--- Examples of touch-marks having:
+--- * known date, no upload tries and no relog tries done (at 0th upload & 0th relog):   31.05.2024_11:22:33|U-R-
+--- * known date, no upload tries and 0 relog tries done (at 0th upload & 1st relog):    31.05.2024_11:22:33|U-R0
+--- * known date, 1 upload try and no relog tries done done (at 2nd upload & 0th relog): 31.05.2024_11:22:33|U1R-
+--- * known date, 1 upload try and 0 relog tries done (at 2nd upload & 1st relog):       31.05.2024_11:22:33|U1R0
+--- * unknown date, no upload tries and no relog tries done (at 0th upload & 0th relog): D?T?|U-R-
+--- * unknown date, no upload tries and 3 relog tries done (at 0th upload & 4th relog):  D?T?|U-R3
+--- * unknown date, 2 upload tries and no relog tries done (at 3rd upload & 0th relog):  D?T?|U2R-
+--- * unknown date, 2 upload tries and 3 relog tries done (at 3rd upload & 4th relog):   D?T?|U2R3
+---@param msgBody string The log message body
+---@param decomposedDate table? The decomposed ISO date, denoting the log line's generated at timestamp
+---@return boolean # `true` if the log file line can be uploaded, otherwise `false`
+---@return string msgBody The log message body with the date and upload try number prepended or updated <br/>
+---@see decomposeIsoDate 
+local function checkThenPrependOrUpdateTouchmarkInReloggedMessageBody(msgBody, decomposedDate)
+  assertAndOrLog(msgBody)
+  local i, relogTryChar
+
+  _, _, i   = msgBody:find("^%d%d%.%d%d%.%d%d%d%d_%d%d:%d%d:%d%d|U[%d%-]()")
+  if not i then
+    _, _, i = msgBody:find("^D%?T%?|U[%d%-]()")
+  end
+  if not i then -- no touch-mark, so 0th relog try with no other flags 
+    msgBody = string.format("%s|U-R0 %s", composeDmyHmsDate(decomposedDate), msgBody)
+    return true, msgBody
+  end
+
+  _, _, relogTryChar = msgBody:find("^R([%d%-])", i)
+  if not relogTryChar then -- 0th relog try with upload try before and no other flags after
+    msgBody = string.format("%sR0 %s", msgBody:sub(1, i - 1), msgBody)
+    return true, msgBody
+  else -- 0th upload try with other flags, or we already tried to upload this line at least once
+    local relogTry = (relogTryChar == "-" and 0) or (tonumber(relogTryChar, 10) + 1)
+    if relogTry < MAX_LOG_LINE_RELOG_TRIES then
+      msgBody = string.format("%sR%d%s", msgBody:sub(1, i - 1), relogTry, msgBody:sub(i + 2))
+      return true, msgBody
+    else
+      return false, msgBody
+    end
+  end
+end
+
+--- Moves messages from the circular buffer to the queue, for relogging them.<br/>
+--- Each message body is checked to see if it starts with a touch-mark, this being
+--- prepended or updated depending on its presence.<br/>
+--- NOTE: After the move operation, the circular buffer is emptied (shallow) even if
+--- no message was moved, so CALL WITH CARE!
+---@param b table The buffer
+---@param q table The queue
+---@param count integer The count of messages to move <br/>
+---@see decomposeReloggedMessageDateTime
+---@see checkThenPrependOrUpdateTouchmarkInReloggedMessageBody
+---@see ListRepushLeft
+function moveCircularBufferToQueue(b, q, count)
+  local size = b.size
+  local last = b.last
+  assertAndOrLog(size and last)
+  assert(q.first and q.last)
+
+  local first = last + size - 1
+  last = maxNumber(last, first - count + 1)
+  for i = last, first do
+    local j = (i >= LOG_SENT_BUFFER_CAPACITY and i - LOG_SENT_BUFFER_CAPACITY) or i
+    local message = b[j]
+
+    if message ~= nil and message.message ~= nil then
+      local decomposedDate = decomposeReloggedMessageDateTime(message.datetime)
+      local ok, msgBody = checkThenPrependOrUpdateTouchmarkInReloggedMessageBody(
+        message.message, decomposedDate)
+      if ok then
+        message.message = msgBody
+        ListRepushLeft(q, message)
+      end
+    end
+
+    b[j] = nil
+  end
+
+  b.size = 0
+  b.last = 0
+end
+
+--#endregion
+
+
 --#region Log message functions **********
 
 --- Decomposes/Unformats an offline message string/line into its parts, owning to the
@@ -965,6 +1119,20 @@ function ListPushLeft(message)
 
   -- save the new queue to metadata
   writeMD(LogList)
+end
+
+--- Re-enqueues a message(/element) to the tail of the list/queue.<br/>
+--- This is similar to the push operation, but is stripped and thus faster, meaning that it
+--- does NOT do any checks, nor preprocesses or clones the message, nor saves the queue to
+--- the metadata.
+---@param q table The queue
+---@param message table The structured information about the log message
+function ListRepushLeft(q, message)
+  assert(message)
+
+  local first = (q and q.first or 0) - 1
+  q.first = first
+  q[first] = message
 end
 
 --- Gets/Peeks the element from the head of the list/queue.
