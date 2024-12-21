@@ -180,6 +180,13 @@ IniSettingsForUploadingLogs = nil
 
 --#region Helper functions **********
 
+--- Extracts and returns the error reason from the given error message of a
+--- raised error. On extraction failure, returns the given error message.
+---@param errMsg string The error message of a raised error
+local function getErrorReason(errMsg)
+  return errMsg:match(":%d+: (.*)$") or errMsg
+end
+
 --- Checks if the given input is a table.
 ---@param t any The input to be checked as table
 ---@return boolean # `true` if the input is a table, otherwise `false`
@@ -1271,7 +1278,8 @@ end
 local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
   local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
   if not ok then -- `decomposedDate` is `pcall`s error message here
-    logDev("Can't decompose " .. isoDate .. " as ISO date", decomposedDate --[[@as string]])
+    local errMsg = getErrorReason(tostring(decomposedDate))
+    logDev("Can't decompose `" .. isoDate .. "` as ISO date", errMsg)
     -- upon errors consider the log line as being recent
     return true, nil
   end
@@ -1531,7 +1539,7 @@ local function initLogList()
   if not ok then
     ok, LogList = pcall(getInitialQueue)
     if not ok then -- `LogList` is `pcall`s error message here
-      logDev("Can't get initial log queue", LogList --[[@as string]])
+      logDev("Can't get initial log queue", getErrorReason(tostring(LogList)))
       LogList = {first = 0, last = -1}
     end
   end
