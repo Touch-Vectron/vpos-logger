@@ -477,6 +477,31 @@ end
 --#endregion **********
 
 
+--#region Math functions **********
+
+--- Returns the minimum of the two numbers.
+--- 
+--- RAISES an error if any argument is not a number!
+---@param first number The first number
+---@param second number The second number
+---@return number #The minimum number
+local function minNumber(first, second)
+  return (first < second and first) or second
+end
+
+--- Returns the maximum of the two numbers.
+--- 
+--- RAISES an error if any argument is not a number!
+---@param first number The first number
+---@param second number The second number
+---@return number #The maximum number
+local function maxNumber(first, second)
+  return (first < second and second) or first
+end
+
+--#endregion **********
+
+
 --#region File functions **********
 
 --- Gets the file extension without the leading `.` dot character, from the file
@@ -983,7 +1008,7 @@ local function sendFromQueue(q)
       ok, err = pcall(ListPopRight, q)
       assert(ok, err)
       if ok then
-        ok, err = pcall(writeMD, q, b)
+        ok, err = pcall(writeMD, q)
         assertAndOrLog(ok, err)
       else
         ListPushLeft({
@@ -1050,7 +1075,7 @@ function handleQueue(q)
       ok, err = pcall(writeMD, q, b)
       assertAndOrLog(ok, err)
     else
-      local sendCount = (qSize < MAX_LOG_LIST_SEND_LINES and qSize) or MAX_LOG_LIST_SEND_LINES
+      local sendCount = minNumber(qSize, MAX_LOG_LIST_SEND_LINES)
       analyzeQueue(qSize)
       for i = 1, sendCount do
         local ok, err = pcall(sendFromQueue, q)
