@@ -695,28 +695,27 @@ end
 
 --#region Script metadata functions **********
 
---- Reads the queue from the script metadata, indexed by "key" key.
----@return table? # The metadata queue indexed by "key" if present, otherwise `nil`
+--- Reads the log list/queue indexed by "q" (or old "key") key, from the script metadata.
+---@return table? # The metadata queue indexed by "q" (or "key") if present, otherwise `nil`
 function readMD()
   local metaTab = vpos.script.currentScript():getMetaData()
-  if not metaTab or not next(metaTab) then
-    return nil
-  else
-    return metaTab.key
+  if isNonEmptyTable(metaTab) then
+    return (isNonEmptyTable(metaTab.key) and metaTab.key) or metaTab.q
   end
+  return nil
 end
 
---- Writes the queue to the script metadata, indexed by the given key.
+--- Writes the queue indexed by "q" key, to the script metadata.
 ---@param q table? The queue
----@param key string? The indexing key in the metadata; defaults to "key" if `nil`
 ---@return boolean # `true` on success, otherwise `false`
-function writeMD(q, key)
-  if not q or not next(q) then return false end
-  key = key or "key"
-  local metaTab = {key = q}
+function writeMD(q)
+  if not isNonEmptyTable(q) then return false end
+
+  local metaTab = {q = q}
   return vpos.script.currentScript():setMetaData(metaTab)
 end
 
+--- ENTRY POINT<br/>
 --- Clears the script metadata.<br/>
 --- Practically, erases the log queue and saves this empty queue to the metadata.
 function clearMD()
@@ -945,23 +944,7 @@ function dumpQueue(q)
   return count
 end
 
---- Gets the queue saved in the script metadata if present, otherwise an empty
---- and initialized queue.
----@return table initMetaData The inital queue <br/>
----@see readMD
----@see isQueueEmpty
-function getInitialQueue()
-  local ok, initMetaData = pcall(readMD)
-  if not ok then -- `initMetaData` is `pcall`s error message here
-    logDev("Can't read metadata", initMetaData --[[@as string]])
-  end
-  if ok and initMetaData and not isQueueEmpty(initMetaData) then
-    return initMetaData
-  else
-    return {first = 0, last = -1}
-  end
-end
-
+--- ENTRY POINT<br/>
 --- Enqueues a message(/element) to the tail of the log list/queue.
 ---@param message table The structured information about the log message
 function ListPushLeft(message)
@@ -972,6 +955,7 @@ function ListPushLeft(message)
   message.priority = message.priority or Priority.MAIL_INFO
   LogList.first = first
   LogList[first] = cloneTablesDeepOthersShallow(message)
+
   -- save the new queue to metadata
   writeMD(LogList)
 end
@@ -1521,6 +1505,23 @@ local function initSettings()
   COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
   COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
   POS_NAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+end
+
+--- Gets the queue saved in the script metadata if present, otherwise an empty and initialized
+--- queue, corresponding to the log list/queue.
+---@return table initQueue The initial queue <br/>
+---@see readMD
+---@see isQueueEmpty
+function getInitialQueue()
+  local ok, initQueue = pcall(readMD)
+  if not ok then -- `initQueue` is `pcall`s error message here
+    logDev("Can't read metadata", getErrorReason(tostring(initQueue)))
+  end
+  if not ok or not isNonEmptyTable(initQueue) or isQueueEmpty(initQueue --[[@as table]]) then
+    initQueue = {first = 0, last = -1}
+  end
+  ---@cast initQueue table
+  return initQueue
 end
 
 local function initLogList()
