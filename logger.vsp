@@ -962,16 +962,60 @@ local function formatMessage(message, fallback)
   return outStr
 end
 
+--- Handles the connection down which was detected late, by requeuing all apparently sent
+--- messages that were saved in the circular buffer, for relogging.  
+---@param q table The queue
+---@param b table The buffer
+---@param offlineCount integer The count of of failed online sends with fallbacks to file for the previous chunk of messages / socket
+---@param onlineCount integer The count of truly or apparently successful online sends for the previous chunk of messages / socket
+local function handleUnnoticedConnectionDown(q, b, offlineCount, onlineCount)
+  if onlineCount < 1 then return end
+
+  local qFirst, qLast = q.first, q.last
+  assertAndOrLog(qFirst and qLast)
+
+  qFirst, qLast = math.abs(qFirst), math.abs(qLast)
+  local qChunkMax = qLast - 1
+  local qChunkMin = maxNumber(qChunkMax - (offlineCount + onlineCount) + 1, 1)
+  if isCircularBufferEmpty(b) then
+    logDev(string.format(
+      "Possibly lost %d messages @ Q %d-%d:%d ", onlineCount, qChunkMin, qChunkMax, qFirst),
+      "Connection went down unnoticed")
+    return
+  else
+    logDev(string.format(
+      "Requeuing %d messages from Q %d-%d:%d ", onlineCount, qChunkMin, qChunkMax, qFirst),
+      "Connection went down unnoticed")
+  end
+
+  local ok, err = pcall(moveCircularBufferToQueue, b, q, onlineCount)
+  assert(ok, err)
+  if ok then
+    ok, err = pcall(writeMD, q)
+    assertAndOrLog(ok, err)
+  else
+    ListPushLeft({
+      scriptName   = LOGGER_SCRIPT_NAME,
+      url          = URL_PAPERTRAIL,
+      logType      = LogType.ONLINE,
+      logSize      = 300,
+      priority     = Priority.USER_ERROR,
+      messageLevel = logLevel.Error,
+      message      = tostring(err),
+    })
+  end
+end
+
 --- Renews the log socket after several logs were written to file or succesfully sent
 --- online.
 ---@param url string The URL to the online logging location
 local function renewLogSocket(url)
   local wasSocketValid = (LogSocket ~= nil)
-  local offlineCntr, onlineCntr = OfflineCounter, OnlineCounter
+  local offlineCount, onlineCount = OfflineCounter, OnlineCounter
 
-  if (not LogSocket and offlineCntr == 0) or
-     offlineCntr >= OFFLINE_COUNT_FOR_SOCKET_RENEWING or
-     onlineCntr  >= ONLINE_COUNT_FOR_SOCKET_RENEWING then
+  if (not LogSocket and offlineCount == 0) or
+     offlineCount >= OFFLINE_COUNT_FOR_SOCKET_RENEWING or
+     onlineCount  >= ONLINE_COUNT_FOR_SOCKET_RENEWING then
     local logUrl = url:gsub("http://", "")
     local address, port = logUrl:match("(.-):(%d+)")
     assertAndOrLog(address and port)
@@ -981,17 +1025,9 @@ local function renewLogSocket(url)
   end
 
   if (wasSocketValid and not LogSocket) and
-     offlineCntr <  OFFLINE_COUNT_FOR_SOCKET_RENEWING and
-     onlineCntr  >= ONLINE_COUNT_FOR_SOCKET_RENEWING and
-     not isQueueEmpty(LogList) then
-    local qMax, qCur = math.abs(LogList.first), math.abs(LogList.last)
-    local qPrev = qCur - ONLINE_COUNT_FOR_SOCKET_RENEWING - 1
-    if qPrev < 1 then qPrev = 1 end
-    if qCur > qPrev then
-      logDev(string.format(
-        "Possibly lost %d messages @ Q %d-%d:%d ", qCur - qPrev, qPrev, qCur - 1, qMax),
-        "Connection went down unnoticed")
-    end
+     offlineCount <  OFFLINE_COUNT_FOR_SOCKET_RENEWING and
+     onlineCount  >= ONLINE_COUNT_FOR_SOCKET_RENEWING then
+    handleUnnoticedConnectionDown(LogList, LogSentBuffer, offlineCount, onlineCount)
   end
 end
 
@@ -1000,6 +1036,7 @@ end
 ---
 --- RAISES an error if falling back to file and the log file can't be opened!
 ---@param message table Message table containing the information to be logged
+---@return boolean #`true` if the message was sent online, otherwise `false`
 local function sendMessage(message)
   local ok, outStr = pcall(formatMessage, message)
   assert(ok, outStr)
@@ -1036,6 +1073,7 @@ local function sendMessage(message)
     LogFile.fh:write(outStr)
     LogFile.fh:flush()
   end
+  return not fallbackToFile
 end
 
 --#endregion **********
@@ -1151,19 +1189,26 @@ function ListPopRight(q)
   q.last = last - 1
 end
 
---- Sends and pops the head element(/message) of the queue, and updates the
+--- Sends online or writes offline and pops the head element(/message) of the list/queue,
+--- pushes this element to the circular buffer if it was sent online, and updates the
 --- script metadata.
 ---@param q table The queue
-local function sendFromQueue(q)
+---@param b table The buffer
+local function sendFromQueue(q, b)
   local ok, message = pcall(ListGetRight, q)
   assertAndOrLog(ok, message)
   message.qLast  = q.last
   message.qFirst = q.first
   if ok then
-    local err
-    ok, err = pcall(sendMessage, message)
-    assert(ok, err)
+    local sentOnline
+    ok, sentOnline = pcall(sendMessage, message)
+    assert(ok, sentOnline)
     if ok then
+      local err
+      if sentOnline then
+        ok, err = pcall(circularBufferPush, b, message)
+        assert(ok, err)
+      end
       ok, err = pcall(ListPopRight, q)
       assert(ok, err)
       if ok then
@@ -1188,7 +1233,7 @@ local function sendFromQueue(q)
         logSize      = 300,
         priority     = Priority.USER_ERROR,
         messageLevel = logLevel.Error,
-        message      = tostring(err),
+        message      = tostring(sentOnline),
       })
     end
   end
@@ -1211,9 +1256,10 @@ if ENABLE_LOGGER_ANALYTICS then
   end
 end
 
---- Manages the queue.
+--- Manages the queues, namely the log list/queue and circular sent buffer.
 ---@param q table The queue
-function handleQueue(q)
+---@param b table The buffer
+function handleQueues(q, b)
   if not isQueueEmpty(q) then
     local qSize = queueSize(q)
     --showStatus("QSize " .. tostring(qSize))
@@ -1237,7 +1283,7 @@ function handleQueue(q)
       local sendCount = minNumber(qSize, MAX_LOG_LIST_SEND_LINES)
       analyzeQueue(qSize)
       for i = 1, sendCount do
-        local ok, err = pcall(sendFromQueue, q)
+        local ok, err = pcall(sendFromQueue, q, b)
         assert(ok, err)
         if not ok then
           ListPushLeft({
@@ -1458,33 +1504,40 @@ local function checkLineRecencyThenUpdateLastDateOfUploadingLogFile(isoDate)
   return isRecentLogFileLine(decomposedDate), decomposedDate
 end
 
---- First determines if a log message body starts with a date in `dd.mm.yyyy_hh:mm:ss` format
---- (denoting the generated at timestamp) and an upload try number. If not, then it prepends
---- them and the corresponding log line can be uploaded. Else (if the message body contains
---- these 2 elements), the log line can be uploaded if the max. upload tries hasn't been
---- reached, in which case the upload try number is updated.<br/>
+--- First determines if a log message body starts with a touch-mark, namely a date-time in
+--- `dd.mm.yyyy_hh:mm:ss` format (denoting the generated at timestamp) and flagged upload
+--- try and relog try numbers (with possibly other flags in the future). If not, then it
+--- prepends it and the corresponding log line can be uploaded. Else (if the message body
+--- contains the touch-mark), the log line can be uploaded if the max. upload tries hasn't
+--- been reached, in which case the upload try number is updated.<br/>
 --- If the given `decomposedDate` is `nil`, then `UNKNOWN_DATETIME` string is prepended to
---- a log line not containing the 2 elements.
+--- a log line not containing the touch-mark.
+--- 
+--- Examples of touch-marks having:
+--- * known date-time and no upload tries done (at 0th upload):   31.05.2024_11:22:33|U-
+--- * known date-time and 1 upload try done (at 2nd upload):      31.05.2024_11:22:33|U1
+--- * unknown date-time and no upload tries done (at 0th upload): D?T?|U-
+--- * unknown date-time and 2 upload tries done (at 3rd upload):  D?T?|U2
 ---@param msgBody string The log message body
 ---@param decomposedDate table? The decomposed ISO date, denoting the log line's generated at timestamp
 ---@return boolean # `true` if the log file line can be uploaded, otherwise `false`
 ---@return string msgBody The log message body with the date and upload try number prepended or updated <br/>
 ---@see decomposeIsoDate 
-local function checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgBody, decomposedDate)
+local function checkThenPrependOrUpdateTouchmarkInUploadedMessageBody(msgBody, decomposedDate)
   assertAndOrLog(msgBody)
   local i, uploadTryChar
 
-  _, _, i, uploadTryChar   = msgBody:find("^%d%d%.%d%d%.%d%d%d%d_%d%d:%d%d:%d%d|U()(%d) ")
+  _, _, i, uploadTryChar   = msgBody:find("^%d%d%.%d%d%.%d%d%d%d_%d%d:%d%d:%d%d|U()([%d%-])")
   if not uploadTryChar then
-    _, _, i, uploadTryChar = msgBody:find("^D%?T%?|U()(%d) ")
+    _, _, i, uploadTryChar = msgBody:find("^D%?T%?|U()([%d%-])")
   end
-  if not uploadTryChar then -- 0th upload try
-    msgBody = string.format("%s|U0 %s", composeDmyHmsDate(decomposedDate), msgBody)
+  if not uploadTryChar then -- no touch-mark, so 0th upload try with no other flags 
+    msgBody = string.format("%s|U0R- %s", composeDmyHmsDate(decomposedDate), msgBody)
     return true, msgBody
-  else -- we already tried to upload this line at least once
-    local uploadTry = tonumber(uploadTryChar) + 1
+  else -- 0th upload try with other flags, or we already tried to upload this line
+    local uploadTry = (uploadTryChar == "-" and 0) or (tonumber(uploadTryChar, 10) + 1)
     if uploadTry < MAX_LOG_LINE_UPLOAD_TRIES then
-      msgBody = string.format("%s|U%d %s", msgBody:sub(1, i - 3), uploadTry, msgBody:sub(i + 2))
+      msgBody = string.format("%s|U%d%s", msgBody:sub(1, i - 3), uploadTry, msgBody:sub(i + 1))
       return true, msgBody
     else
       return false, msgBody
@@ -1510,7 +1563,7 @@ local function uploadLogFileLine(line)
     ok, decomposedDate = checkLineRecencyThenUpdateLastDateOfUploadingLogFile(UploadingLogFile.lastIsoDate)
     if not ok then return false end
 
-    ok, msgBody = checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgBody, decomposedDate)
+    ok, msgBody = checkThenPrependOrUpdateTouchmarkInUploadedMessageBody(msgBody, decomposedDate)
     if not ok then return false end
 
     ListPushLeft({
@@ -1534,7 +1587,7 @@ local function uploadLogFileLine(line)
     if isNilOrWhitespaceString(msgBody) then return false end
     ---@cast msgBody string
 
-    ok, msgBody = checkDateAndUploadTryThenPrependOrUpdateThemInLogMessageBody(msgBody, decomposedDate)
+    ok, msgBody = checkThenPrependOrUpdateTouchmarkInUploadedMessageBody(msgBody, decomposedDate)
     if not ok then return false end
 
     --NOTE: we handle differently the date vs. script name in the 2 code branches, because
@@ -1666,8 +1719,8 @@ function onLogTimer()
     ok, err = pcall(uploadOfflineLogs)
     if not ok then logDev("Error while uploading offline logs", tostring(err)) end
   end
-  ok, err = pcall(handleQueue, LogList)
-  if not ok then logDev("Error while handling log queue", tostring(err)) end
+  ok, err = pcall(handleQueues, LogList, LogSentBuffer)
+  if not ok then logDev("Error while handling log queues", tostring(err)) end
 end
 
 --#endregion **********
@@ -1691,7 +1744,7 @@ end
 function getInitialQueue()
   local ok, initQueue = pcall(readMD)
   if not ok then -- `initQueue` is `pcall`s error message here
-    logDev("Can't read metadata", getErrorReason(tostring(initQueue)))
+    logDev("Can't read metadata", tostring(initQueue))
   end
   if not ok or not isNonEmptyTable(initQueue) or isQueueEmpty(initQueue --[[@as table]]) then
     initQueue = {first = 0, last = -1}
@@ -1700,17 +1753,19 @@ function getInitialQueue()
   return initQueue
 end
 
-local function initLogList()
+local function initLogQueues()
   local ok
   ok, LogList = pcall(getInitialQueue)
   assert(ok, LogList)
   if not ok then
     ok, LogList = pcall(getInitialQueue)
     if not ok then -- `LogList` is `pcall`s error message here
-      logDev("Can't get initial log queue", getErrorReason(tostring(LogList)))
+      logDev("Can't get initial log queue", tostring(LogList))
       LogList = {first = 0, last = -1}
     end
   end
+
+  LogSentBuffer = {size = 0, last = 0}
 end
 
 local function initUploadingOfflineLogs()
@@ -1731,7 +1786,7 @@ end
 --#region MAIN **********
 
 initSettings()
-initLogList()
+initLogQueues()
 initUploadingOfflineLogs()
 
 vpos.script.registerAsInterScript()
