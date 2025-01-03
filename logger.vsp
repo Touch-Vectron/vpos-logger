@@ -6,7 +6,7 @@
 -- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
 
 
---#region Global constants and enums **********
+--#region Script constants, enums and types **********
 
 ---@enum logLevel # Logging level.
 logLevel = {
@@ -146,10 +146,23 @@ local IsoDate = {
 --- An unknown/unrecognized date-time.
 UNKNOWN_DATETIME = "D?T?"
 
+--- A table with all of the offline message parts, owning to this logger script:
+---  * `scriptName`: the script name, which originally logged this message 
+---  * `sendingIsoDate`: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+---  * `messageLevel`: defaulted as `logLevel.Info`
+---  * `messageBody`: the actual message content
+---@alias LoggerOfflineMessageParts {scriptName: string, sendingIsoDate: string, messageLevel: string, messageBody: string}
+--- A table with all of the offline message parts, owning to scripts other than this (logger):
+--- * `sendingIsoDate`: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+--- * `messageLevel`: the log level
+--- * `qLast`, `qFirst`: the original queue boundary indexes
+--- * `messageBody`: the actual message content
+---@alias OfflineMessageParts {sendingIsoDate: string, messageLevel: string, qLast: integer, qFirst: integer, messageBody: string}
+
 --#endregion **********
 
 
---#region Global variables **********
+--#region Script variables **********
 
 --- The logging list/queue containing all current lines/messages to be logged.
 LogList = {}
@@ -884,19 +897,15 @@ end
 --#region Log message functions **********
 
 --- Decomposes/Unformats an offline message string/line into its parts, owning to the
---- logger script.<br/>
---- RAISES an error if the message can't be decomposed or a message part can't be converted.
+--- logger script.
 ---@param str string The message string/line
----@return table # A table with all of the message string parts:
----  * `scriptName` string: the script name, which originally logged this message 
----  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
----  * `messageLevel` string: defaulted as `logLevel.Info`
----  * `messageBody` string: the actual message content
+---@return LoggerOfflineMessageParts? # The logger offline message parts on success, otherwise `nil`
 local function decomposeLoggerOfflineMessageString(str)
   assertAndOrLog(str)
 
-  local scriptName, sendingIsoDate, messageBody = str:match("^(%S+)%s+(%S+)%s+(.-)\r?\n$")
-  if not scriptName then error("Can't decompose logger offline message string") end
+  local scriptName, sendingIsoDate, messageBody = str:match(
+    "^(%S+)%s+(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%S*)%s+(.-)\r?\n$")
+  if not scriptName then return nil end
 
   return {
     scriptName = scriptName, sendingIsoDate = sendingIsoDate, messageLevel = logLevel.Info,
@@ -904,25 +913,21 @@ local function decomposeLoggerOfflineMessageString(str)
   }
 end
 
---- Decomposes/Unformats an offline message string/line into its parts.<br/>
---- RAISES an error if a message part can't be determined or converted.
+--- Decomposes/Unformats an offline message string/line into its parts, owning to scripts
+--- other than this (logger).
 ---@param str string The message string/line
----@return table # A table with all of the message string parts:
----  * `sendingIsoDate` string: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
----  * `messageLevel` string: the log level
----  * `qLast`, `qFirst` integer: the original queue boundary indexes
----  * `messageBody` string: the actual message content
+---@return OfflineMessageParts? # The offline message parts on success, otherwise `nil`
 local function decomposeOfflineMessageString(str)
   assertAndOrLog(str)
 
-  local sendingIsoDate, messageLevel, qLastStr, qFirstStr, messageBody =
-    str:match("^(%S+) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
-  if not sendingIsoDate then error("Can't decompose offline message string") end
+  local sendingIsoDate, messageLevel, qLastStr, qFirstStr, messageBody = str:match(
+    "^(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%S*) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
+  if not sendingIsoDate then return nil end
 
-  local qLast = tonumber(qLastStr)
-  if not qLast then error("Can't convert queue last index to number") end
-  local qFirst = tonumber(qFirstStr)
-  if not qFirst then error("Can't convert queue first index to number") end
+  local qLast = tonumber(qLastStr, 10)
+  if not qLast then return nil end
+  local qFirst = tonumber(qFirstStr, 10)
+  if not qFirst then return nil end
 
   return {
     sendingIsoDate = sendingIsoDate, messageLevel = messageLevel,
@@ -1543,8 +1548,8 @@ local function uploadLogFileLine(line)
   assertAndOrLog(line and UploadingLogFile.lastScriptName and UploadingLogFile.lastMessageLevel)
   local msgBody, decomposedDate
 
-  local ok, decomposedMsg = pcall(decomposeUploadingLogFileLine, line)
-  if not ok then -- there can be multi-line messages, messages with unknown format etc.
+  local decomposedMsg = decomposeUploadingLogFileLine(line)
+  if not decomposedMsg then -- there can be multi-line messages, messages with unknown format etc.
     msgBody = trimStringEndNewline(line)
 
     --NOTE: the log line failed to decompose, so first check if it contains only whitespaces
