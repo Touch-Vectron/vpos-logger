@@ -134,20 +134,14 @@ MAX_LOG_LINE_UPLOAD_TRIES = 5
 MAX_UPLOADED_LOG_DELETION_ROUNDS = 3
 
 --- ISO 8601 date constants.
-IsoDate = {
-  DATE_SEP      = "-", --- Separator between date parts.
-  TIME_MARK     = "T", --- Time mark/sign between the date and time sections.
-  TIME_SEP      = ":", --- Separator between the time parts and respectively time zone parts.
-  TZ_UTC_MARK   = "Z", --- Time zone UTC mark/sign.
-  TZ_PLUS_MARK  = "+", --- Time zone plus mark/sign.
-  TZ_MINUS_MARK = "-", --- Time zone minus mark/sign.
+local IsoDate = {
+  DATE_SEP_BYTE      = string.byte("-", 1), --- Separator between date parts.
+  TIME_MARK_BYTE     = string.byte("T", 1), --- Time mark/sign between the date and time sections.
+  TIME_SEP_BYTE      = string.byte(":", 1), --- Separator between the time parts and respectively time zone parts.
+  TZ_UTC_MARK_BYTE   = string.byte("Z", 1), --- Time zone UTC mark/sign.
+  TZ_PLUS_MARK_BYTE  = string.byte("+", 1), --- Time zone plus mark/sign.
+  TZ_MINUS_MARK_BYTE = string.byte("-", 1), --- Time zone minus mark/sign.
 }
-IsoDate.BYTE_DATE_SEP      = IsoDate.DATE_SEP:byte(1)
-IsoDate.BYTE_TIME_MARK     = IsoDate.TIME_MARK:byte(1)
-IsoDate.BYTE_TIME_SEP      = IsoDate.TIME_SEP:byte(1)
-IsoDate.BYTE_TZ_UTC_MARK   = IsoDate.TZ_UTC_MARK:byte(1)
-IsoDate.BYTE_TZ_PLUS_MARK  = IsoDate.TZ_PLUS_MARK:byte(1)
-IsoDate.BYTE_TZ_MINUS_MARK = IsoDate.TZ_MINUS_MARK:byte(1)
 --ATTENTION: keep this constant and all explicit usages of its string value in sync!<br/>
 --- An unknown/unrecognized date-time.
 UNKNOWN_DATETIME = "D?T?"
@@ -255,19 +249,19 @@ local function decomposeIsoDate(isoDate)
   elseif dateLen == 21 or dateLen == 23 or dateLen == 24 then
     error("String length is invalid to be an ISO 8601 date")
   end
-  if string.byte(isoDate, 5)  ~= IsoDate.BYTE_DATE_SEP                        or
-     string.byte(isoDate, 8)  ~= IsoDate.BYTE_DATE_SEP                        or
-     string.byte(isoDate, 11) ~= IsoDate.BYTE_TIME_MARK                       or
-     string.byte(isoDate, 14) ~= IsoDate.BYTE_TIME_SEP                        or
-     string.byte(isoDate, 17) ~= IsoDate.BYTE_TIME_SEP                        or
-     (dateLen == 20 and string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_UTC_MARK) or
+  if string.byte(isoDate, 5)  ~= IsoDate.DATE_SEP_BYTE                        or
+     string.byte(isoDate, 8)  ~= IsoDate.DATE_SEP_BYTE                        or
+     string.byte(isoDate, 11) ~= IsoDate.TIME_MARK_BYTE                       or
+     string.byte(isoDate, 14) ~= IsoDate.TIME_SEP_BYTE                        or
+     string.byte(isoDate, 17) ~= IsoDate.TIME_SEP_BYTE                        or
+     (dateLen == 20 and string.byte(isoDate, 20) ~= IsoDate.TZ_UTC_MARK_BYTE) or
      ((dateLen == 22 or dateLen == 25) and
-      (string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_PLUS_MARK and
-       string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_MINUS_MARK))               or
+      (string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
+       string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE))               or
      (dateLen == 25 and
-      ((string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_PLUS_MARK and
-        string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_MINUS_MARK) or
-       string.byte(isoDate, 23) ~= IsoDate.BYTE_TIME_SEP)) then
+      ((string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
+        string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE) or
+       string.byte(isoDate, 23) ~= IsoDate.TIME_SEP_BYTE)) then
     error("String is not an ISO 8601 date")
   end
 
