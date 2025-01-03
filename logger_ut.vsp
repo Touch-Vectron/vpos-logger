@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 1.4
+--!ScriptVersion: 1.5
 -- Copyright (C) 2024 Touch Vectron
 -- Script name: logger_ut.vsp
 -- Script description: Unit tests for logger (logger.vsp and logger_pasteInYourCode) 
@@ -7,7 +7,7 @@
 -- Date: 05/2024
 
 
---#region Global constants and enums **********
+--#region Script constants and enums **********
 
 --- Logging level.
 local logLevel = {
@@ -51,24 +51,18 @@ URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
 
 --- ISO 8601 date constants.
 local IsoDate = {
-  DATE_SEP      = "-", --- Separator between date parts.
-  TIME_MARK     = "T", --- Time mark/sign between the date and time sections.
-  TIME_SEP      = ":", --- Separator between the time parts and respectively time zone parts.
-  TZ_UTC_MARK   = "Z", --- Time zone UTC mark/sign.
-  TZ_PLUS_MARK  = "+", --- Time zone plus mark/sign.
-  TZ_MINUS_MARK = "-", --- Time zone minus mark/sign.
+  DATE_SEP_BYTE      = string.byte("-", 1), --- Separator between date parts.
+  TIME_MARK_BYTE     = string.byte("T", 1), --- Time mark/sign between the date and time sections.
+  TIME_SEP_BYTE      = string.byte(":", 1), --- Separator between the time parts and respectively time zone parts.
+  TZ_UTC_MARK_BYTE   = string.byte("Z", 1), --- Time zone UTC mark/sign.
+  TZ_PLUS_MARK_BYTE  = string.byte("+", 1), --- Time zone plus mark/sign.
+  TZ_MINUS_MARK_BYTE = string.byte("-", 1), --- Time zone minus mark/sign.
 }
-IsoDate.BYTE_DATE_SEP      = IsoDate.DATE_SEP:byte(1)
-IsoDate.BYTE_TIME_MARK     = IsoDate.TIME_MARK:byte(1)
-IsoDate.BYTE_TIME_SEP      = IsoDate.TIME_SEP:byte(1)
-IsoDate.BYTE_TZ_UTC_MARK   = IsoDate.TZ_UTC_MARK:byte(1)
-IsoDate.BYTE_TZ_PLUS_MARK  = IsoDate.TZ_PLUS_MARK:byte(1)
-IsoDate.BYTE_TZ_MINUS_MARK = IsoDate.TZ_MINUS_MARK:byte(1)
 
 --#endregion **********
 
 
---#region Global variables **********
+--#region Script variables **********
 
 --- The logger object.
 Log = {}
@@ -120,19 +114,19 @@ local function decomposeIsoDate(isoDate)
   elseif dateLen == 21 or dateLen == 23 or dateLen == 24 then
     error("String length is invalid to be an ISO 8601 date")
   end
-  if string.byte(isoDate, 5)  ~= IsoDate.BYTE_DATE_SEP                        or
-     string.byte(isoDate, 8)  ~= IsoDate.BYTE_DATE_SEP                        or
-     string.byte(isoDate, 11) ~= IsoDate.BYTE_TIME_MARK                       or
-     string.byte(isoDate, 14) ~= IsoDate.BYTE_TIME_SEP                        or
-     string.byte(isoDate, 17) ~= IsoDate.BYTE_TIME_SEP                        or
-     (dateLen == 20 and string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_UTC_MARK) or
+  if string.byte(isoDate, 5)  ~= IsoDate.DATE_SEP_BYTE                        or
+     string.byte(isoDate, 8)  ~= IsoDate.DATE_SEP_BYTE                        or
+     string.byte(isoDate, 11) ~= IsoDate.TIME_MARK_BYTE                       or
+     string.byte(isoDate, 14) ~= IsoDate.TIME_SEP_BYTE                        or
+     string.byte(isoDate, 17) ~= IsoDate.TIME_SEP_BYTE                        or
+     (dateLen == 20 and string.byte(isoDate, 20) ~= IsoDate.TZ_UTC_MARK_BYTE) or
      ((dateLen == 22 or dateLen == 25) and
-      (string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_PLUS_MARK and
-       string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_MINUS_MARK))               or
+      (string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
+       string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE))               or
      (dateLen == 25 and
-      ((string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_PLUS_MARK and
-        string.byte(isoDate, 20) ~= IsoDate.BYTE_TZ_MINUS_MARK) or
-       string.byte(isoDate, 23) ~= IsoDate.BYTE_TIME_SEP)) then
+      ((string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
+        string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE) or
+       string.byte(isoDate, 23) ~= IsoDate.TIME_SEP_BYTE)) then
     error("String is not an ISO 8601 date")
   end
 
@@ -455,8 +449,8 @@ end
 ---@param scriptUpdate string? The last update date of the script which uses this logger; defaults to " " if `nil`
 ---@return table self A new logger instance
 function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate)
-  --- Logging level value associated to the logging level (name).
-  local LogLevelValue = {
+  --- Logging level number associated to the logging level (name).
+  local LogLevelNumber = {
     UNKNOWN   = -1,
     OFF       = 0,
     RESERVED1 = 1,
@@ -469,29 +463,29 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   }
 
   --ATTENTION: keep this mapping function and all explicit log level usages in sync! 
-  local function mapLogLevelNameToValue(levelName)
-    if not levelName then                    return LogLevelValue.UNKNOWN
-    elseif levelName == logLevel.Off then    return LogLevelValue.OFF
-    elseif levelName == logLevel.Error then  return LogLevelValue.ERROR
-    elseif levelName == logLevel.Warn then   return LogLevelValue.WARN
-    elseif levelName == logLevel.Info then   return LogLevelValue.INFO
-    elseif levelName == logLevel.Debug then  return LogLevelValue.DEBUG
-    elseif levelName == logLevel.Trace then  return LogLevelValue.TRACE
-    else                                     return LogLevelValue.UNKNOWN end
+  local function mapLogLevelNameToNumber(levelName)
+    if not levelName then                    return LogLevelNumber.UNKNOWN
+    elseif levelName == logLevel.Off then    return LogLevelNumber.OFF
+    elseif levelName == logLevel.Error then  return LogLevelNumber.ERROR
+    elseif levelName == logLevel.Warn then   return LogLevelNumber.WARN
+    elseif levelName == logLevel.Info then   return LogLevelNumber.INFO
+    elseif levelName == logLevel.Debug then  return LogLevelNumber.DEBUG
+    elseif levelName == logLevel.Trace then  return LogLevelNumber.TRACE
+    else                                     return LogLevelNumber.UNKNOWN end
   end
 
-  --- Maps the given logging level value to a Syslog Protocol priority.
-  ---@param levelValue integer The logging level value
+  --- Maps the given logging level number to a Syslog Protocol priority.
+  ---@param levelNumber integer The logging level number
   ---@return integer # The Syslog Protocol priority
   --ATTENTION: keep this mapping function and all explicit priority usages in sync! 
-  local function mapLogLevelValueToPriority(levelValue)
-    if not levelValue then                         return Priority.USER_INFO
-    elseif levelValue == LogLevelValue.ERROR then  return Priority.USER_ERROR
-    elseif levelValue == LogLevelValue.WARN then   return Priority.USER_WARN
-    elseif levelValue == LogLevelValue.INFO then   return Priority.USER_INFO
-    elseif levelValue == LogLevelValue.DEBUG or
-           levelValue == LogLevelValue.TRACE then  return Priority.USER_DEBUG
-    else                                           return Priority.USER_INFO end
+  local function mapLogLevelNumberToPriority(levelNumber)
+    if not levelNumber then                          return Priority.USER_INFO
+    elseif levelNumber == LogLevelNumber.ERROR then  return Priority.USER_ERROR
+    elseif levelNumber == LogLevelNumber.WARN then   return Priority.USER_WARN
+    elseif levelNumber == LogLevelNumber.INFO then   return Priority.USER_INFO
+    elseif levelNumber == LogLevelNumber.DEBUG or
+           levelNumber == LogLevelNumber.TRACE then  return Priority.USER_DEBUG
+    else                                             return Priority.USER_INFO end
   end
 
   -- create a new instance
@@ -501,7 +495,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   ---@private
   local logTab =  {
-    levelValue    = mapLogLevelNameToValue(level or logLevel.Info),
+    levelNumber   = mapLogLevelNameToNumber(level or logLevel.Info),
     logType       = logType or LogType.ONLINE,
     logSize       = logSize or 300,
     url           = url or URL_PAPERTRAIL,
@@ -544,7 +538,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   ---@param message string? The message to log
   ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
   function self.trace(message, full)
-    if logTab.levelValue >= LogLevelValue.TRACE then
+    if logTab.levelNumber >= LogLevelNumber.TRACE then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
@@ -561,7 +555,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   ---@param message string? The message to log
   ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
   function self.debug(message, full)
-    if logTab.levelValue >= LogLevelValue.DEBUG then
+    if logTab.levelNumber >= LogLevelNumber.DEBUG then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
@@ -576,7 +570,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   ---@param message string? The message to log
   ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
   function self.info(message, full)
-    if logTab.levelValue >= LogLevelValue.INFO then
+    if logTab.levelNumber >= LogLevelNumber.INFO then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
@@ -592,7 +586,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   ---@param message string? The message to log
   ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
   function self.warn(message, full)
-    if logTab.levelValue >= LogLevelValue.WARN then
+    if logTab.levelNumber >= LogLevelNumber.WARN then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
@@ -607,7 +601,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   --- message, always fully.
   ---@param message string? The message to log
   function self.error(message)
-    if logTab.levelValue >= LogLevelValue.ERROR then
+    if logTab.levelNumber >= LogLevelNumber.ERROR then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
@@ -626,18 +620,18 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   ---@param messageFormat string? The message format
   ---@param ... any The message vararg
   function self.log(messageLevel, full, messageFormat, ...)
-    local messageLevelValue = mapLogLevelNameToValue(messageLevel)
-    if messageLevelValue > LogLevelValue.OFF and logTab.levelValue >= messageLevelValue then
+    local messageLevelNumber = mapLogLevelNameToNumber(messageLevel)
+    if messageLevelNumber > LogLevelNumber.OFF and logTab.levelNumber >= messageLevelNumber then
       local info = debug.getinfo(2, "nl")
       local msg  = (messageFormat and string.format(messageFormat, ...)) or ""
       if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
-      if messageLevelValue == LogLevelValue.TRACE then
+      if messageLevelNumber == LogLevelNumber.TRACE then
         local now = vpos.datetime.DateTime():getUnixTime() or ""
         msg = now .. "@ " .. msg
       end
       logTab.message      = msg
       logTab.messageLevel = messageLevel
-      logTab.priority     = mapLogLevelValueToPriority(messageLevelValue)
+      logTab.priority     = mapLogLevelNumberToPriority(messageLevelNumber)
       logData(logTab, full)
     end
   end
