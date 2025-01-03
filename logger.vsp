@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.11
+--!ScriptVersion: 2.12
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
 -- Date: 12/2024
@@ -58,7 +58,7 @@ LOG_TIMER_INTERVAL = 320
 UPLOAD_ROUND_INTERVAL = 150000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
 
 --- Maximum logging list/queue size before dumping its content to the logger's log file.
-MAX_LOG_LIST_SIZE_BEFORE_DUMP = 150
+MAX_LOG_LIST_SIZE_BEFORE_DUMP = 165
 --- Maximum log lines / message strings to send per send round (a log timer interval).<br/>
 --- The maximum "log lines bandwidth" per hour is:<br/>
 ---   3'600'000 ms / LOG_TIMER_INTERVAL * MAX_LOG_LIST_SEND_LINES;<br/>
@@ -112,10 +112,10 @@ MIN_VPOS_VERSION_FOR_UPLOADING_LOGS = "6.3.7.0"
 --- Default log type for uploading log files without a corresponding ".ini" file.
 --- NOTE: This is a per log file, not a per log line constant, and also applies for the logger!
 LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI = LogType.ONLINE
---- Maximum logging list/queue size allowed for uploading offline saved log lines.
-MAX_LOG_LIST_SIZE_FOR_UPLOAD = 50
---- Maximum logging list/queue size allowed after an uploading round.
-MAX_LOG_LIST_SIZE_AFTER_UPLOAD = 70
+--- Maximum logging list/queue size allowed for an uploading round to begin.
+MAX_LOG_LIST_SIZE_FOR_UPLOAD = 55
+--- Maximum logging list/queue size allowed after an uploading round ended.
+MAX_LOG_LIST_SIZE_AFTER_UPLOAD = 75
 --- Maximum log lines to upload per upload round (if the logging list/queue size allows).
 --- The maximum "upload log lines bandwidth" is:<br/>
 ---   360'000 ms / UPLOAD_ROUND_INTERVAL * MAX_LOG_LINES_TO_UPLOAD;<br/>
