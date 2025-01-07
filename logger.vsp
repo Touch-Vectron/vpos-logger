@@ -1062,11 +1062,12 @@ local function sendMessage(message)
   end
 
   if fallbackToFile then
-    local scriptBaseName = get_base_file_name_from_name(message.scriptName)
-    if not LogFile or LogFile.size() >= message.logSize or
-       scriptBaseName ~= LogFile.scriptBaseName then
+    local maxLogSize = message.logSize or 300
+    if not LogFile or
+       LogFile.size() >= maxLogSize or
+       LogFile.scriptBaseName ~= get_base_file_name_from_name(message.scriptName) then
       if LogFile then assertAndOrLog(LogFile.fh); LogFile.fh:close() end
-      LogFile = getLogFile(message.scriptName, message.logSize)
+      LogFile = getLogFile(message.scriptName, maxLogSize)
       logDebug("Got %s.log file with current size %.2f KB", LogFile.scriptBaseName, LogFile.size())
     end
     LogFile.fh:write(outStr)
