@@ -641,49 +641,50 @@ local function deleteLogFile(filePath, logErrors)
   return ok, errNo
 end
 
---- Creates or opens a log file for writing, having the script's base name and extension
---- ".log".
+--- Creates or opens a log file for writing, having the script's base name and the ".log"
+--- extension.
 ---
 --- RAISES an error if the log file can't be created or opened!
 ---@param scriptName string The script name
----@param logSizeInKB number? The maximum log size in kilobytes before creating a new file
+---@param maxLogSizeInKB number? The maximum log file size in kilobytes at which to create a new file
 ---@return table # A table containing:
 --- * `fh` userdata/file*: the log file handler
 --- * `size` function: gets the current log size
 --- * `scriptBaseName` string: the script base name
-local function getLogFile(scriptName, logSizeInKB)
+local function getLogFile(scriptName, maxLogSizeInKB)
   assertAndOrLog(scriptName)
-  local fileSize = logSizeInKB or 300
+  maxLogSizeInKB = maxLogSizeInKB or 300
+
   local scriptBaseName = get_base_file_name_from_name(scriptName)
   local fileName = tostring(scriptBaseName or "log") .. ".log"
   local filePath = "VPOS:" .. fileName
 
   local logSize = function()
-      local logSize = get_file_size_as_script(filePath)
-      return (logSize <= 0 and 0) or (logSize / 1000)
+      local sizeInB = get_file_size_as_script(filePath)
+      return (sizeInB <= 0 and 0) or (sizeInB / 1000)
     end
 
   local curSize = logSize()
   local fh, errMsg, devMsg
-  if curSize < fileSize then
+  if curSize < maxLogSizeInKB then
     fh, errMsg = io.open(filePath, "a+")
     assert(fh, errMsg)
     if not fh then logDev("Can't open file " .. fileName .. " in A+ mode", errMsg) end
   end
-   -- roll over the log file
-  if not fh then -- an `or curSize >= fileSize` condition is superfluos
+  -- roll over the log file
+  if not fh then -- an `or curSize >= maxLogSizeInKB` condition is superfluos
     -- rename the log file
     local backupFileName = fileName:sub(1, -5) .. ".1.log"
     local backupFilePath = "VPOS:" .. backupFileName
     local ok, frOk, frErr = pcall(file_rename, filePath, backupFilePath, true)
     if not ok then -- the log file wasn't renamed, `frOk` is `pcall`s error message here
       devMsg = "Can't rename file " .. fileName .. " to " .. backupFilePath
-      if curSize >= fileSize then logDev(devMsg, frOk --[[@as string]])
-      else                        logDebug(devMsg .. ": " .. frOk) end
+      if curSize >= maxLogSizeInKB then logDev(devMsg, frOk --[[@as string]])
+      else                              logDebug(devMsg .. ": " .. frOk) end
     elseif not frOk then -- the log file wasn't renamed
       devMsg = "Can't rename file " .. fileName .. " to " .. backupFilePath
-      if curSize >= fileSize then logDev(devMsg, frErr)
-      else                        logDebug(devMsg .. ": " .. frErr) end
+      if curSize >= maxLogSizeInKB then logDev(devMsg, frErr)
+      else                              logDebug(devMsg .. ": " .. frErr) end
 
       --NOTE: for all below code, we don't need to check if `UploadingLogFile.fileName`
       -- exists (is non-nil), because checking equality against a valid string won't
