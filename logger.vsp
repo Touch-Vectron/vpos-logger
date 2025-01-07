@@ -159,7 +159,7 @@ UNKNOWN_DATETIME = "D?T?"
 --- * `messageLevel`: the log level
 --- * `qLast`, `qFirst`: the original queue boundary indexes
 --- * `messageBody`: the actual message content
----@alias OfflineMessageParts {sendingIsoDate: string, messageLevel: string, qLast: integer, qFirst: integer, messageBody: string}
+---@alias NonLoggerOfflineMessageParts {sendingIsoDate: string, messageLevel: string, qLast: integer, qFirst: integer, messageBody: string}
 
 --#endregion **********
 
@@ -919,8 +919,8 @@ end
 --- Decomposes/Unformats an offline message string/line into its parts, owning to scripts
 --- other than this (logger).
 ---@param str string The message string/line
----@return OfflineMessageParts? # The offline message parts on success, otherwise `nil`
-local function decomposeOfflineMessageString(str)
+---@return NonLoggerOfflineMessageParts? # The non-logger offline message parts on success, otherwise `nil`
+local function decomposeNonLoggerOfflineMessageString(str)
   assertAndOrLog(str)
 
   local sendingIsoDate, messageLevel, qLastStr, qFirstStr, messageBody = str:match(
@@ -1432,7 +1432,7 @@ local function decomposeUploadingLogFileLine(line)
   if fileName == LOGGER_LOG_NAME or fileName == LOGGER_BACKUP_LOG_NAME then
     return decomposeLoggerOfflineMessageString(line)
   else
-    return decomposeOfflineMessageString(line)
+    return decomposeNonLoggerOfflineMessageString(line)
   end
 end
 
