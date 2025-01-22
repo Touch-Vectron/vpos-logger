@@ -1151,11 +1151,13 @@ end
 function ListPushLeft(message)
   if not message then return end
 
-  local first = (LogList.first or 0) - 1
   message.datetime = message.datetime or dateISO()
   message.priority = message.priority or Priority.MAIL_INFO
+  message = cloneTablesDeepOthersShallow(message)
+
+  local first = (LogList.first or 0) - 1
+  LogList[first] = message
   LogList.first = first
-  LogList[first] = cloneTablesDeepOthersShallow(message)
 
   -- save the new queue to metadata
   writeMD(LogList)
@@ -1171,8 +1173,8 @@ function ListRepushLeft(q, message)
   assert(message)
 
   local first = (q.first or 0) - 1
-  q.first = first
   q[first] = message
+  q.first = first
 end
 
 --- Gets/Peeks the element from the head of the list/queue.
@@ -1187,8 +1189,8 @@ end
 ---@param q table The queue
 function ListPopRight(q)
   local last = q.last
-  q[last] = nil
   q.last = last - 1
+  q[last] = nil
 end
 
 --- Sends online or writes offline and pops the head element(/message) of the list/queue,
