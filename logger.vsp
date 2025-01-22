@@ -1321,13 +1321,7 @@ end
 local function determineMaxLogLinesForUploadRound()
   local logListSize = queueSize(LogList)
   if logListSize > MAX_LOG_LIST_SIZE_FOR_UPLOAD then return 0 end
-
-  local uploadLogLines = MAX_LOG_LIST_SIZE_AFTER_UPLOAD - logListSize
-  if uploadLogLines < MAX_LOG_LINES_TO_UPLOAD then
-    return uploadLogLines
-  else
-    return MAX_LOG_LINES_TO_UPLOAD
-  end
+  return minNumber(MAX_LOG_LIST_SIZE_AFTER_UPLOAD - logListSize, MAX_LOG_LINES_TO_UPLOAD)
 end
 
 local function isLoggerConnectedOnline()
