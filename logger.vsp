@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.13
+--!ScriptVersion: 2.14
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
 -- Date: 01/2025
@@ -88,7 +88,7 @@ LOG_SENT_BUFFER_CAPACITY = ONLINE_COUNT_FOR_SOCKET_RENEWING
 --- The maximum tries for relogging a log line / message string, practically denoting the max.
 --- count that a log line was possibly dropped during an online send and requeued for sending.
 --- Valid range [1, 10].
-MAX_LOG_LINE_RELOG_TRIES = 5
+MAX_LOG_LINE_RELOG_TRIES = 3
 
 if ENABLE_LOGGER_ANALYTICS then
   --- The minimum log list/queue size, as in either the current size or the previous marked
