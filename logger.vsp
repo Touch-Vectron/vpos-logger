@@ -774,13 +774,12 @@ local function circularBufferPush(b, message)
 
   local size = b.size
   local last = b.last
-  if size >= LOG_SENT_BUFFER_CAPACITY then
+  if size >= LOG_SENT_BUFFER_CAPACITY then -- write to last, which becomes first by incrementing it
     b[last] = nil
     b[last] = message
     last = last + 1
-    if last >= LOG_SENT_BUFFER_CAPACITY then last = 0 end
-    b.last = last
-  else
+    b.last = (last >= LOG_SENT_BUFFER_CAPACITY and 0) or last
+  else -- add to first, and increment size
     local first = last + size
     if first >= LOG_SENT_BUFFER_CAPACITY then first = first - LOG_SENT_BUFFER_CAPACITY end
     b[first] = message
@@ -980,14 +979,14 @@ local function handleUnnoticedConnectionDown(q, b, offlineCount, onlineCount)
   local qChunkMax = qLast - 1
   local qChunkMin = maxNumber(qChunkMax - (offlineCount + onlineCount) + 1, 1)
   if isCircularBufferEmpty(b) then
-    logDev(string.format(
-      "Possibly lost %d messages @ Q %d-%d:%d ", onlineCount, qChunkMin, qChunkMax, qFirst),
-      "Connection went down unnoticed")
+    logDev(string.format("Possibly lost %d messages @ Q %d-%d:%d ",
+                         onlineCount, qChunkMin, qChunkMax, qFirst),
+           "Connection went down unnoticed")
     return
   else
-    logDev(string.format(
-      "Requeuing %d messages from Q %d-%d:%d ", onlineCount, qChunkMin, qChunkMax, qFirst),
-      "Connection went down unnoticed")
+    logDev(string.format("Requeuing %d messages from Q %d-%d:%d ",
+                         onlineCount, qChunkMin, qChunkMax, qFirst),
+           "Connection went down unnoticed")
   end
 
   local ok, err = pcall(moveCircularBufferToQueue, b, q, onlineCount)
