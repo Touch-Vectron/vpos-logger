@@ -1152,7 +1152,7 @@ end
 function ListPushLeft(message)
   if not message then return end
 
-  local first = (LogList and LogList.first or 0) - 1
+  local first = (LogList.first or 0) - 1
   message.datetime = message.datetime or dateISO()
   message.priority = message.priority or Priority.MAIL_INFO
   LogList.first = first
@@ -1171,7 +1171,7 @@ end
 function ListRepushLeft(q, message)
   assert(message)
 
-  local first = (q and q.first or 0) - 1
+  local first = (q.first or 0) - 1
   q.first = first
   q[first] = message
 end
