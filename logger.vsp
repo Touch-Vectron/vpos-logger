@@ -1209,7 +1209,7 @@ local function sendFromQueue(q, b)
       local err
       if sentOnline then
         ok, err = pcall(circularBufferPush, b, message)
-        assert(ok, err)
+        assertAndOrLog(ok, err)
       end
       ok, err = pcall(ListPopRight, q)
       assert(ok, err)
@@ -1267,7 +1267,7 @@ function handleQueues(q, b)
     --showStatus("QSize " .. tostring(qSize))
     if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
       local ok, resp = pcall(dumpQueue, q)
-      assert(ok, resp)
+      assertAndOrLog(ok, resp)
       eraseQueue(q) -- empty the log queue
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
