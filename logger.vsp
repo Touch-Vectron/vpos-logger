@@ -201,6 +201,7 @@ IniSettingsForUploadingLogs = nil
 --- Extracts and returns the error reason from the given error message of a
 --- raised error. On extraction failure, returns the given error message.
 ---@param errMsg string The error message of a raised error
+---@return string # The extracted error reason on success, otherwise the given error message
 local function getErrorReason(errMsg)
   return errMsg:match(":%d+: (.*)$") or errMsg
 end
