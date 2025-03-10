@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.13
+--!ScriptVersion: 2.14
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
 -- Date: 01/2025
@@ -88,7 +88,7 @@ LOG_SENT_BUFFER_CAPACITY = ONLINE_COUNT_FOR_SOCKET_RENEWING
 --- The maximum tries for relogging a log line / message string, practically denoting the max.
 --- count that a log line was possibly dropped during an online send and requeued for sending.
 --- Valid range [1, 10].
-MAX_LOG_LINE_RELOG_TRIES = 5
+MAX_LOG_LINE_RELOG_TRIES = 3
 
 if ENABLE_LOGGER_ANALYTICS then
   --- The minimum log list/queue size, as in either the current size or the previous marked
@@ -774,13 +774,12 @@ local function circularBufferPush(b, message)
 
   local size = b.size
   local last = b.last
-  if size >= LOG_SENT_BUFFER_CAPACITY then
+  if size >= LOG_SENT_BUFFER_CAPACITY then -- write to last, which becomes first by incrementing it
     b[last] = nil
     b[last] = message
     last = last + 1
-    if last >= LOG_SENT_BUFFER_CAPACITY then last = 0 end
-    b.last = last
-  else
+    b.last = (last >= LOG_SENT_BUFFER_CAPACITY and 0) or last
+  else -- add to first, and increment size
     local first = last + size
     if first >= LOG_SENT_BUFFER_CAPACITY then first = first - LOG_SENT_BUFFER_CAPACITY end
     b[first] = message
@@ -980,14 +979,14 @@ local function handleUnnoticedConnectionDown(q, b, offlineCount, onlineCount)
   local qChunkMax = qLast - 1
   local qChunkMin = maxNumber(qChunkMax - (offlineCount + onlineCount) + 1, 1)
   if isCircularBufferEmpty(b) then
-    logDev(string.format(
-      "Possibly lost %d messages @ Q %d-%d:%d ", onlineCount, qChunkMin, qChunkMax, qFirst),
-      "Connection went down unnoticed")
+    logDev(string.format("Possibly lost %d messages @ Q %d-%d:%d ",
+                         onlineCount, qChunkMin, qChunkMax, qFirst),
+           "Connection went down unnoticed")
     return
   else
-    logDev(string.format(
-      "Requeuing %d messages from Q %d-%d:%d ", onlineCount, qChunkMin, qChunkMax, qFirst),
-      "Connection went down unnoticed")
+    logDev(string.format("Requeuing %d messages from Q %d-%d:%d ",
+                         onlineCount, qChunkMin, qChunkMax, qFirst),
+           "Connection went down unnoticed")
   end
 
   local ok, err = pcall(moveCircularBufferToQueue, b, q, onlineCount)
@@ -1152,11 +1151,13 @@ end
 function ListPushLeft(message)
   if not message then return end
 
-  local first = (LogList and LogList.first or 0) - 1
   message.datetime = message.datetime or dateISO()
   message.priority = message.priority or Priority.MAIL_INFO
+  message = cloneTablesDeepOthersShallow(message)
+
+  local first = (LogList.first or 0) - 1
+  LogList[first] = message
   LogList.first = first
-  LogList[first] = cloneTablesDeepOthersShallow(message)
 
   -- save the new queue to metadata
   writeMD(LogList)
@@ -1171,9 +1172,9 @@ end
 function ListRepushLeft(q, message)
   assert(message)
 
-  local first = (q and q.first or 0) - 1
-  q.first = first
+  local first = (q.first or 0) - 1
   q[first] = message
+  q.first = first
 end
 
 --- Gets/Peeks the element from the head of the list/queue.
@@ -1188,8 +1189,8 @@ end
 ---@param q table The queue
 function ListPopRight(q)
   local last = q.last
-  q[last] = nil
   q.last = last - 1
+  q[last] = nil
 end
 
 --- Sends online or writes offline and pops the head element(/message) of the list/queue,
@@ -1210,7 +1211,7 @@ local function sendFromQueue(q, b)
       local err
       if sentOnline then
         ok, err = pcall(circularBufferPush, b, message)
-        assert(ok, err)
+        assertAndOrLog(ok, err)
       end
       ok, err = pcall(ListPopRight, q)
       assert(ok, err)
@@ -1268,7 +1269,7 @@ function handleQueues(q, b)
     --showStatus("QSize " .. tostring(qSize))
     if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
       local ok, resp = pcall(dumpQueue, q)
-      assert(ok, resp)
+      assertAndOrLog(ok, resp)
       eraseQueue(q) -- empty the log queue
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
@@ -1322,13 +1323,7 @@ end
 local function determineMaxLogLinesForUploadRound()
   local logListSize = queueSize(LogList)
   if logListSize > MAX_LOG_LIST_SIZE_FOR_UPLOAD then return 0 end
-
-  local uploadLogLines = MAX_LOG_LIST_SIZE_AFTER_UPLOAD - logListSize
-  if uploadLogLines < MAX_LOG_LINES_TO_UPLOAD then
-    return uploadLogLines
-  else
-    return MAX_LOG_LINES_TO_UPLOAD
-  end
+  return minNumber(MAX_LOG_LIST_SIZE_AFTER_UPLOAD - logListSize, MAX_LOG_LINES_TO_UPLOAD)
 end
 
 local function isLoggerConnectedOnline()
