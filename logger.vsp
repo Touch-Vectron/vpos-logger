@@ -109,8 +109,6 @@ LOGGER_BACKUP_LOG_NAME = "logger.1.log"
 
 --- Flag indicating if uploading offline logs is supported on the current VPOS.
 IS_UPLOADING_LOGS_SUPPORTED = false
---- Flag indicating if uploading offline logs is supported on the current VPOS.
-MIN_VPOS_VERSION_FOR_UPLOADING_LOGS = "6.3.7.0"
 --- Default log type for uploading log files without a corresponding ".ini" file.
 --- NOTE: This is a per log file, not a per log line constant, and also applies for the logger!
 LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI = LogType.ONLINE
@@ -1768,10 +1766,9 @@ local function initLogQueues()
 end
 
 local function initUploadingOfflineLogs()
-  local vposVersion = vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion)
-  local curVersionNo = convertVersionStringToNumber(vposVersion)
-  local minVersionNo = convertVersionStringToNumber(MIN_VPOS_VERSION_FOR_UPLOADING_LOGS)
-  IS_UPLOADING_LOGS_SUPPORTED = (curVersionNo >= minVersionNo)
+  local curVposVersion   = vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion)
+  local curVposVersionNo = convertVersionStringToNumber(curVposVersion)
+  IS_UPLOADING_LOGS_SUPPORTED = curVposVersionNo >= convertVersionStringToNumber("6.3.7.0")
 end
 
 local function initTimers()
