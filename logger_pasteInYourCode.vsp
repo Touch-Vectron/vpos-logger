@@ -59,12 +59,12 @@ Log = {}
 -----------------------------------------------------------------------------
 
 --- Formats the given or current date according to the ISO 8601 (long) format
---- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
+--- `yyyy-mm-ddThh:mm:ss[+-]hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
 --- (only the first 19 out of the 25 characters).<br/>
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
----@param date table? A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
----@return string # The formatted given or current date
+---@param date table? #A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
+---@return string #The formatted given or current date
 local function dateISO(date)
   date = date or vpos.datetime.DateTime()
   local day, month, year = date:getDate()
@@ -78,9 +78,9 @@ end
 local AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
 
 --- Checks for the existance of the file.
----@param fn string The file name/path to be checked
----@param host string? The file host; defaults to "VPOS" if `nil` and a host can't be extracted from `fn`
----@return boolean `true` if the file exists, otherwise `false` <br/>
+---@param fn string #The file name/path to be checked
+---@param host string? #The file host; defaults to "VPOS" if `nil` and a host can't be extracted from `fn`
+---@return boolean #`true` if the file exists, otherwise `false` <br/>
 ---@see AllowedFileHosts
 local function file_exists(fn, host)
   if not fn then return false end
@@ -106,14 +106,14 @@ local function file_exists(fn, host)
 end
 
 --- Creates a logger object.
----@param level string? The minimum log level for logging a line/message; defaults to `logLevel.Info` if `nil`
----@param logType string? The logging type/mode; defaults to `LogType.ONLINE` if `nil`
----@param logSize number? The max. log file size in kilobytes before rollover; defaults to 300 if `nil`
----@param url string? The Papertrail URL; defaults to `URL_PAPERTRAIL` if `nil`
----@param scriptName string? The name of the script which uses this logger; defaults to " " if `nil`
----@param scriptVersion string? The version of the script which uses this logger; defaults to "0" if `nil`
----@param scriptUpdate string? The last update date of the script which uses this logger; defaults to " " if `nil`
----@return table self A new logger instance
+---@param level string? #The minimum log level for logging a line/message; defaults to `logLevel.Info` if `nil`
+---@param logType string? #The logging type/mode; defaults to `LogType.ONLINE` if `nil`
+---@param logSize number? #The max. log file size in kilobytes before rollover; defaults to 300 if `nil`
+---@param url string? #The Papertrail URL; defaults to `URL_PAPERTRAIL` if `nil`
+---@param scriptName string? #The name of the script which uses this logger; defaults to " " if `nil`
+---@param scriptVersion string? #The version of the script which uses this logger; defaults to "0" if `nil`
+---@param scriptUpdate string? #The last update date of the script which uses this logger; defaults to " " if `nil`
+---@return table self #A new logger instance
 function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate)
   --- Logging level number associated to the logging level (name).
   local LogLevelNumber = {
@@ -141,8 +141,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   end
 
   --- Maps the given logging level number to a Syslog Protocol priority.
-  ---@param levelNumber integer The logging level number
-  ---@return integer # The Syslog Protocol priority
+  ---@param levelNumber integer #The logging level number
+  ---@return integer #The Syslog Protocol priority
   --ATTENTION: keep this mapping function and all explicit priority usages in sync! 
   local function mapLogLevelNumberToPriority(levelNumber)
     if not levelNumber then                          return Priority.USER_INFO
@@ -181,7 +181,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   end
 
   --- Logs information about the script.
-  ---@param settings string? Additional script settings to be logged if non-`nil`
+  ---@param settings string? #Additional script settings to be logged if non-`nil`
   function self.scriptInfo(settings)
     logTab.message      = string.format(
       "====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
@@ -201,8 +201,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   --- Logs a trace message, containing the calling function line and name, the current Unix
   --- time and the given message, possibly truncating it.
-  ---@param message string? The message to log
-  ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
+  ---@param message string? #The message to log
+  ---@param full boolean? #Flag to log the full message if `true`, otherwise the possibly truncated message
   function self.trace(message, full)
     if logTab.levelNumber >= LogLevelNumber.TRACE then
       local info = debug.getinfo(2, "nl")
@@ -218,8 +218,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   --- Logs a debug message, containing the calling function line and name and the given
   --- message, possibly truncating it.
-  ---@param message string? The message to log
-  ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
+  ---@param message string? #The message to log
+  ---@param full boolean? #Flag to log the full message if `true`, otherwise the possibly truncated message
   function self.debug(message, full)
     if logTab.levelNumber >= LogLevelNumber.DEBUG then
       local info = debug.getinfo(2, "nl")
@@ -233,8 +233,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   end
 
   --- Logs an informational message, possibly truncating it.
-  ---@param message string? The message to log
-  ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
+  ---@param message string? #The message to log
+  ---@param full boolean? #Flag to log the full message if `true`, otherwise the possibly truncated message
   function self.info(message, full)
     if logTab.levelNumber >= LogLevelNumber.INFO then
       local info = debug.getinfo(2, "nl")
@@ -249,8 +249,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   --- Logs a warning message, containing the calling function line and name and the given
   --- message, possibly truncating it.
-  ---@param message string? The message to log
-  ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
+  ---@param message string? #The message to log
+  ---@param full boolean? #Flag to log the full message if `true`, otherwise the possibly truncated message
   function self.warn(message, full)
     if logTab.levelNumber >= LogLevelNumber.WARN then
       local info = debug.getinfo(2, "nl")
@@ -265,7 +265,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
 
   --- Logs an error message, containing the calling function line and name and the given
   --- message, always fully.
-  ---@param message string? The message to log
+  ---@param message string? #The message to log
   function self.error(message)
     if logTab.levelNumber >= LogLevelNumber.ERROR then
       local info = debug.getinfo(2, "nl")
@@ -281,10 +281,10 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   --- Logs a message with the given logging level, containing the calling function line and
   --- name and a string formatted with the given format and vararg, possibly truncating the
   --- message.
-  ---@param messageLevel logLevel The message logging level
-  ---@param full boolean? Flag to log the full message if `true`, otherwise the possibly truncated message
-  ---@param messageFormat string? The message format
-  ---@param ... any The message vararg
+  ---@param messageLevel logLevel #The message logging level
+  ---@param full boolean? #Flag to log the full message if `true`, otherwise the possibly truncated message
+  ---@param messageFormat string? #The message format
+  ---@param ... any #The message vararg
   function self.log(messageLevel, full, messageFormat, ...)
     local messageLevelNumber = mapLogLevelNameToNumber(messageLevel)
     if messageLevelNumber > LogLevelNumber.OFF and logTab.levelNumber >= messageLevelNumber then

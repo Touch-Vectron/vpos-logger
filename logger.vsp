@@ -148,12 +148,12 @@ UNKNOWN_DATETIME = "D?T?"
 
 --- A table with all of the offline message parts, owning to this logger script:
 ---  * `scriptName`: the script name, which originally logged this message 
----  * `sendingIsoDate`: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+---  * `sendingIsoDate`: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`
 ---  * `messageLevel`: defaulted as `logLevel.Info`
 ---  * `messageBody`: the actual message content
 ---@alias LoggerOfflineMessageParts {scriptName: string, sendingIsoDate: string, messageLevel: string, messageBody: string}
 --- A table with all of the offline message parts, owning to scripts other than this (logger):
---- * `sendingIsoDate`: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss±hh:mm`
+--- * `sendingIsoDate`: should be in ISO 8601 format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`
 --- * `messageLevel`: the log level
 --- * `qLast`, `qFirst`: the original queue boundary indexes
 --- * `messageBody`: the actual message content
@@ -224,12 +224,12 @@ local function isNonEmptyTable(t)
 end
 
 --- Formats the given or current date according to the ISO 8601 (long) format
---- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
+--- `yyyy-mm-ddThh:mm:ss[+-]hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
 --- (only the first 19 out of the 25 characters).<br/>
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
----@param date table? A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
----@return string # The formatted given or current date
+---@param date table? #A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
+---@return string #The formatted given or current date
 local function dateISO(date)
   date = date or vpos.datetime.DateTime()
   local day, month, year = date:getDate()
@@ -239,21 +239,22 @@ local function dateISO(date)
                        tostring(year), month, day, hour, minute, second)
 end
 
---- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss±hh:mm` (length
---- 25).<br/>
+--- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`
+--- (length 25).<br/>
 --- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
---- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss±hh` (length 22).<br/>
+--- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss[+-]hh` (length 22).
+--- 
 --- RAISES an error if the string is not an ISO 8601 date or a date part can't be converted.
----@param isoDate string The date in ISO 8601 format
----@return table # A table with all of the ISO date parts:
+---@param isoDate string #The date in ISO 8601 format
+---@return table #A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
 ---   * `hour`, `minute`, `second` integer
 ---   * `timezoneHour`, `timezoneMinute` integer 
 local function decomposeIsoDate(isoDate)
   assertAndOrLog(isoDate)
 
-  -- ISO 8601: y y y y - m m - d d T h h : m m : s s ± h h : m m
-  -- Position: 1       5     8     11    14    17    20    23  25
+  -- ISO 8601: y y y y - m m - d d T h h : m m : s s [+-] h h : m m
+  -- Position: 1       5     8     11    14    17    20       23  25
 
   local dateLen = string.len(isoDate)
   if dateLen < 19 then

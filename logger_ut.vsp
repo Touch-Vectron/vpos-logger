@@ -75,12 +75,12 @@ Log = {}
 assertAndOrLog = function(condition, errMsg) assert(condition, errMsg) end
 
 --- Formats the given or current date according to the ISO 8601 (long) format
---- `yyyy-mm-ddThh:mm:ss±hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
+--- `yyyy-mm-ddThh:mm:ss[+-]hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
 --- (only the first 19 out of the 25 characters).<br/>
 --- Example of returned date: `2016-11-09T04:25:28` (the full date could be
 --- `2016-11-09T04:25:28+01:00`).
----@param date table? A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
----@return string # The formatted given or current date
+---@param date table? #A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
+---@return string #The formatted given or current date
 local function dateISO(date)
   date = date or vpos.datetime.DateTime()
   local day, month, year = date:getDate()
@@ -90,21 +90,22 @@ local function dateISO(date)
                        tostring(year), month, day, hour, minute, second)
 end
 
---- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss±hh:mm` (length
---- 25).<br/>
+--- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`
+--- (length 25).<br/>
 --- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
---- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss±hh` (length 22).<br/>
----Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
----@param isoDate string The date in ISO 8601 format
----@return table # A table with all of the ISO date parts:
+--- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss[+-]hh` (length 22).
+--- 
+--- Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
+---@param isoDate string #The date in ISO 8601 format
+---@return table #A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
 ---   * `hour`, `minute`, `second` integer
 ---   * `timezoneHour`, `timezoneMinute` integer 
 local function decomposeIsoDate(isoDate)
   assertAndOrLog(isoDate)
 
-  -- ISO 8601: y y y y - m m - d d T h h : m m : s s ± h h : m m
-  -- Position: 1       5     8     11    14    17    20    23  25
+  -- ISO 8601: y y y y - m m - d d T h h : m m : s s [+-] h h : m m
+  -- Position: 1       5     8     11    14    17    20       23  25
 
   local dateLen = string.len(isoDate)
   if dateLen < 19 then
@@ -440,14 +441,14 @@ end
 --#region Logging functions **********
 
 --- Creates a logger object.
----@param level string? The minimum log level for logging a line/message; defaults to `logLevel.Info` if `nil`
----@param logType string? The logging type/mode; defaults to `LogType.ONLINE` if `nil`
----@param logSize number? The max. log file size in kilobytes before rollover; defaults to 300 if `nil`
----@param url string? The Papertrail URL; defaults to `URL_PAPERTRAIL` if `nil`
----@param scriptName string? The name of the script which uses this logger; defaults to " " if `nil`
----@param scriptVersion string? The version of the script which uses this logger; defaults to "0" if `nil`
----@param scriptUpdate string? The last update date of the script which uses this logger; defaults to " " if `nil`
----@return table self A new logger instance
+---@param level string? #The minimum log level for logging a line/message; defaults to `logLevel.Info` if `nil`
+---@param logType string? #The logging type/mode; defaults to `LogType.ONLINE` if `nil`
+---@param logSize number? #The max. log file size in kilobytes before rollover; defaults to 300 if `nil`
+---@param url string? #The Papertrail URL; defaults to `URL_PAPERTRAIL` if `nil`
+---@param scriptName string? #The name of the script which uses this logger; defaults to " " if `nil`
+---@param scriptVersion string? #The version of the script which uses this logger; defaults to "0" if `nil`
+---@param scriptUpdate string? #The last update date of the script which uses this logger; defaults to " " if `nil`
+---@return table self #A new logger instance
 function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptUpdate)
   --- Logging level number associated to the logging level (name).
   local LogLevelNumber = {
