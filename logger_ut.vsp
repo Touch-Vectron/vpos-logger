@@ -72,6 +72,8 @@ Log = {}
 
 --#region Helper functions **********
 
+local fmt = string.format
+
 assertAndOrLog = function(condition, errMsg) assert(condition, errMsg) end
 
 --- Formats the given or current date according to the ISO 8601 (long) format
@@ -518,7 +520,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   --- Logs information about the script.
   ---@param settings string? Additional script settings to be logged if non-`nil`
   function self.scriptInfo(settings)
-    logTab.message      = string.format(
+    logTab.message      = fmt(
       "====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
       logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
       vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
@@ -542,7 +544,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.TRACE then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       local now = vpos.datetime.DateTime():getUnixTime() or ""
       logTab.message      = now .. "@ " .. msg
       logTab.messageLevel = logLevel.Trace
@@ -559,7 +561,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.DEBUG then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Debug
       logTab.priority     = Priority.USER_DEBUG
@@ -574,7 +576,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.INFO then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Info
       logTab.priority     = Priority.USER_INFO
@@ -590,7 +592,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.WARN then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Warn
       logTab.priority     = Priority.USER_WARN
@@ -605,7 +607,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.ERROR then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Error
       logTab.priority     = Priority.USER_ERROR
@@ -624,8 +626,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     local messageLevelNumber = mapLogLevelNameToNumber(messageLevel)
     if messageLevelNumber > LogLevelNumber.OFF and logTab.levelNumber >= messageLevelNumber then
       local info = debug.getinfo(2, "nl")
-      local msg  = (messageFormat and string.format(messageFormat, ...)) or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      local msg  = (messageFormat and fmt(messageFormat, ...)) or ""
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       if messageLevelNumber == LogLevelNumber.TRACE then
         local now = vpos.datetime.DateTime():getUnixTime() or ""
         msg = now .. "@ " .. msg
@@ -654,7 +656,7 @@ local function test_AllLoggingVariations()
   local msg100 = "123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 "
   local msgGt1000 = "" -- length is 10 * (100+4) = 1040 greater than 1000
   for i = 0, 9 do
-    msgGt1000 = string.format("%s[%d] %s", msgGt1000, i, msg100)
+    msgGt1000 = fmt("%s[%d] %s", msgGt1000, i, msg100)
   end
   local msgLen = msgGt1000:len()
   assert(msgLen > LOG_TRUNCATE_SIZE)
@@ -667,8 +669,8 @@ local function test_AllLoggingVariations()
   Log.log(logLevel.Trace, false, "Indirect normal test with full=false: " .. msgGt1000)
   Log.log(logLevel.Trace, true,  "Indirect normal test with full=true:  " .. msgGt1000)
   Log.log(logLevel.Trace, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
-  Log.trace(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
-  Log.trace(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.trace(                 fmt("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.trace(                 fmt("Direct format test with full=true:    %s", msgGt1000), true)
   Log.log(logLevel.Trace, false, "Indirect format test with full=false: %s", msgGt1000)
   Log.log(logLevel.Trace, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
@@ -680,8 +682,8 @@ local function test_AllLoggingVariations()
   Log.log(logLevel.Debug, false, "Indirect normal test with full=false: " .. msgGt1000)
   Log.log(logLevel.Debug, true,  "Indirect normal test with full=true:  " .. msgGt1000)
   Log.log(logLevel.Debug, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
-  Log.debug(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
-  Log.debug(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.debug(                 fmt("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.debug(                 fmt("Direct format test with full=true:    %s", msgGt1000), true)
   Log.log(logLevel.Debug, false, "Indirect format test with full=false: %s", msgGt1000)
   Log.log(logLevel.Debug, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
@@ -693,8 +695,8 @@ local function test_AllLoggingVariations()
   Log.log(logLevel.Info, false, "Indirect normal test with full=false: " .. msgGt1000)
   Log.log(logLevel.Info, true,  "Indirect normal test with full=true:  " .. msgGt1000)
   Log.log(logLevel.Info, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
-  Log.info(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
-  Log.info(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.info(                 fmt("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.info(                 fmt("Direct format test with full=true:    %s", msgGt1000), true)
   Log.log(logLevel.Info, false, "Indirect format test with full=false: %s", msgGt1000)
   Log.log(logLevel.Info, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
@@ -706,8 +708,8 @@ local function test_AllLoggingVariations()
   Log.log(logLevel.Warn, false, "Indirect normal test with full=false: " .. msgGt1000)
   Log.log(logLevel.Warn, true,  "Indirect normal test with full=true:  " .. msgGt1000)
   Log.log(logLevel.Warn, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
-  Log.warn(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
-  Log.warn(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.warn(                 fmt("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.warn(                 fmt("Direct format test with full=true:    %s", msgGt1000), true)
   Log.log(logLevel.Warn, false, "Indirect format test with full=false: %s", msgGt1000)
   Log.log(logLevel.Warn, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
@@ -716,7 +718,7 @@ local function test_AllLoggingVariations()
   Log.log(logLevel.Error, false, "Indirect normal test with full=false: " .. msgGt1000)
   Log.log(logLevel.Error, true,  "Indirect normal test with full=true:  " .. msgGt1000)
   Log.log(logLevel.Error, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
-  Log.error(       string.format("Direct format test:                   %s", msgGt1000))
+  Log.error(                 fmt("Direct format test:                   %s", msgGt1000))
   Log.log(logLevel.Error, false, "Indirect format test with full=false: %s", msgGt1000)
   Log.log(logLevel.Error, true,  "Indirect format test with full=true:  %s", msgGt1000)
 end
@@ -798,22 +800,20 @@ local function test_LogMessageWithPercentageCharButWithoutVararg()
 
   ok, err = pcall(Log.info,                      "Direct test with percentage char %c without vararg")
   if not ok then
-    Log.error(string.format("Expected: true nil <> Got: %s '%s'", tostring(ok), tostring(err)))
+    Log.error(fmt("Expected: true nil <> Got: %s '%s'", tostring(ok), tostring(err)))
   end
 
   ok, err = pcall(Log.log, logLevel.Info, false, "Indirect test1 with percentage char %c without vararg")
   if ok then
-    Log.error(string.format("Expected: false '%s' <> Got: %s %s",
-      errMsg, tostring(ok), tostring(err)))
+    Log.error(fmt("Expected: false '%s' <> Got: %s %s", errMsg, tostring(ok), tostring(err)))
   elseif type(err) ~= "string" or err:match(":%d+: (.*)$") ~= errMsg then
-    Log.warn(string.format("Expected error: %s <> Got: %s", errMsg, tostring(err)))
+    Log.warn(fmt("Expected error: %s <> Got: %s", errMsg, tostring(err)))
   end
   ok, err = pcall(indirectTestWithPercentageChar)
   if ok then
-    Log.error(string.format("Expected: false '%s' <> Got: %s %s",
-      errMsg, tostring(ok), tostring(err)))
+    Log.error(fmt("Expected: false '%s' <> Got: %s %s", errMsg, tostring(ok), tostring(err)))
   elseif type(err) ~= "string" or err:match(":%d+: (.*)$") ~= errMsg then
-    Log.warn(string.format("Expected error: %s <> Got: %s", errMsg, tostring(err)))
+    Log.warn(fmt("Expected error: %s <> Got: %s", errMsg, tostring(err)))
   end
 end
 

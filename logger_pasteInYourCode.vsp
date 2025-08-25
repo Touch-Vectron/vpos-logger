@@ -58,6 +58,8 @@ Log = {}
 ----------- 2. LOGGER DEFINITION: add to functions --------------------------
 -----------------------------------------------------------------------------
 
+local fmt = string.format
+
 --- Formats the given or current date according to the ISO 8601 (long) format
 --- `yyyy-mm-ddThh:mm:ss[+-]hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
 --- (only the first 19 out of the 25 characters).<br/>
@@ -70,8 +72,8 @@ local function dateISO(date)
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
-  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
-                       tostring(year), month, day, hour, minute, second)
+  return fmt("%s-%02d-%02dT%02d:%02d:%02d",
+             tostring(year), month, day, hour, minute, second)
 end
 
 --- Constants defining which file hosts are allowed.
@@ -183,7 +185,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   --- Logs information about the script.
   ---@param settings string? #Additional script settings to be logged if non-`nil`
   function self.scriptInfo(settings)
-    logTab.message      = string.format(
+    logTab.message      = fmt(
       "====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
       logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
       vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
@@ -207,7 +209,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.TRACE then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       local now = vpos.datetime.DateTime():getUnixTime() or ""
       logTab.message      = now .. "@ " .. msg
       logTab.messageLevel = logLevel.Trace
@@ -224,7 +226,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.DEBUG then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Debug
       logTab.priority     = Priority.USER_DEBUG
@@ -239,7 +241,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.INFO then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Info
       logTab.priority     = Priority.USER_INFO
@@ -255,7 +257,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.WARN then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Warn
       logTab.priority     = Priority.USER_WARN
@@ -270,7 +272,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.ERROR then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Error
       logTab.priority     = Priority.USER_ERROR
@@ -289,8 +291,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     local messageLevelNumber = mapLogLevelNameToNumber(messageLevel)
     if messageLevelNumber > LogLevelNumber.OFF and logTab.levelNumber >= messageLevelNumber then
       local info = debug.getinfo(2, "nl")
-      local msg  = (messageFormat and string.format(messageFormat, ...)) or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      local msg  = (messageFormat and fmt(messageFormat, ...)) or ""
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       if messageLevelNumber == LogLevelNumber.TRACE then
         local now = vpos.datetime.DateTime():getUnixTime() or ""
         msg = now .. "@ " .. msg

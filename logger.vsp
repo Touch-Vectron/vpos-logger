@@ -196,6 +196,8 @@ IniSettingsForUploadingLogs = nil
 
 --#region Helper functions **********
 
+local fmt = string.format
+
 --- Extracts and returns the error reason from the given error message of a
 --- raised error. On extraction failure, returns the given error message.
 ---@param errMsg string The error message of a raised error
@@ -235,8 +237,8 @@ local function dateISO(date)
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
-  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
-                       tostring(year), month, day, hour, minute, second)
+  return fmt("%s-%02d-%02dT%02d:%02d:%02d",
+             tostring(year), month, day, hour, minute, second)
 end
 
 --- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`
@@ -320,9 +322,9 @@ end
 ---@see decomposeIsoDate 
 local function composeDmyHmsDate(decomposedDate)
   if not decomposedDate then return UNKNOWN_DATETIME end
-  return string.format("%02d.%02d.%04d_%02d:%02d:%02d",
-                       decomposedDate.day, decomposedDate.month, decomposedDate.year,
-                       decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
+  return fmt("%02d.%02d.%04d_%02d:%02d:%02d",
+             decomposedDate.day, decomposedDate.month, decomposedDate.year,
+             decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
 end
 
 --- Clones the object in a custom way.
@@ -450,8 +452,8 @@ if ENABLE_LOGGER_LOGS then
   ---@param ... any The vararg
   logDebug = function(msgFormat, ...)
     local info = debug.getinfo(2, "nl")
-    local msg = (msgFormat and string.format(msgFormat, ...)) or ""
-    if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
+    local msg = (msgFormat and fmt(msgFormat, ...)) or ""
+    if info then msg = fmt("%d:%s: %s", info.currentline, info.name, msg) end
     ListPushLeft({
       datetime     = dateISO(),
       scriptName   = LOGGER_SCRIPT_NAME,
@@ -482,7 +484,7 @@ if ENABLE_LOGGER_LOGS then
     if not condition then
       local info = debug.getinfo(2, "nl")
       local msg = errMsg or "assertion failed"
-      if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("%d:%s: %s", info.currentline, info.name, msg) end
       ListPushLeft({
         datetime     = dateISO(),
         scriptName   = LOGGER_SCRIPT_NAME,
@@ -834,18 +836,18 @@ local function checkThenPrependOrUpdateTouchmarkInReloggedMessageBody(msgBody, d
     _, _, i = msgBody:find("^D%?T%?|U[%d%-]()")
   end
   if not i then -- no touch-mark, so 0th relog try with no other flags 
-    msgBody = string.format("%s|U-R0 %s", composeDmyHmsDate(decomposedDate), msgBody)
+    msgBody = fmt("%s|U-R0 %s", composeDmyHmsDate(decomposedDate), msgBody)
     return true, msgBody
   end
 
   _, _, relogTryChar = msgBody:find("^R([%d%-])", i)
   if not relogTryChar then -- 0th relog try with upload try before and no other flags after
-    msgBody = string.format("%sR0 %s", msgBody:sub(1, i - 1), msgBody)
+    msgBody = fmt("%sR0 %s", msgBody:sub(1, i - 1), msgBody)
     return true, msgBody
   else -- 0th upload try with other flags, or we already tried to upload this line at least once
     local relogTry = (relogTryChar == "-" and 0) or (tonumber(relogTryChar, 10) + 1)
     if relogTry < MAX_LOG_LINE_RELOG_TRIES then
-      msgBody = string.format("%sR%d%s", msgBody:sub(1, i - 1), relogTry, msgBody:sub(i + 2))
+      msgBody = fmt("%sR%d%s", msgBody:sub(1, i - 1), relogTry, msgBody:sub(i + 2))
       return true, msgBody
     else
       return false, msgBody
@@ -947,7 +949,7 @@ local function formatMessage(message, fallback)
   if message.logType == LogType.ONLINE and not fallback then
     local scriptVersion = vpos.tables.Table(806):getData(message.scriptName, 15)
     scriptVersion = tostring((scriptVersion ~= nil and scriptVersion ~= "" and scriptVersion) or 0)
-    local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
+    local scriptData = fmt("%s_v:%s", message.scriptName, scriptVersion)
     local trace = (message.messageLevel == logLevel.Trace and "[trace] ") or ""
 
     outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
@@ -979,13 +981,11 @@ local function handleUnnoticedConnectionDown(q, b, offlineCount, onlineCount)
   local qChunkMax = qLast - 1
   local qChunkMin = maxNumber(qChunkMax - (offlineCount + onlineCount) + 1, 1)
   if isCircularBufferEmpty(b) then
-    logDev(string.format("Possibly lost %d messages @ Q %d-%d:%d ",
-                         onlineCount, qChunkMin, qChunkMax, qFirst),
+    logDev(fmt("Possibly lost %d messages @ Q %d-%d:%d ", onlineCount, qChunkMin, qChunkMax, qFirst),
            "Connection went down unnoticed")
     return
   else
-    logDev(string.format("Requeuing %d messages from Q %d-%d:%d ",
-                         onlineCount, qChunkMin, qChunkMax, qFirst),
+    logDev(fmt("Requeuing %d messages from Q %d-%d:%d ", onlineCount, qChunkMin, qChunkMax, qFirst),
            "Connection went down unnoticed")
   end
 
@@ -1254,7 +1254,7 @@ if ENABLE_LOGGER_ANALYTICS then
       return
     end
 
-    local stats = string.format("size %d", queueSize)
+    local stats = fmt("size %d", queueSize)
     logDev("QUEUE", stats)
     PrevMarkedQueueSize = queueSize
   end
@@ -1278,7 +1278,7 @@ function handleQueues(q, b)
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_WARN,
         messageLevel = logLevel.Warn,
-        message      = string.format("DUMPED & ERASED QUEUE: size %d, %s B", qSize, tostring(resp))
+        message      = fmt("DUMPED & ERASED QUEUE: size %d, %s B", qSize, tostring(resp))
       })
       local err
       ok, err = pcall(writeMD, q, b)
@@ -1530,12 +1530,12 @@ local function checkThenPrependOrUpdateTouchmarkInUploadedMessageBody(msgBody, d
     _, _, i, uploadTryChar = msgBody:find("^D%?T%?|U()([%d%-])")
   end
   if not uploadTryChar then -- no touch-mark, so 0th upload try with no other flags 
-    msgBody = string.format("%s|U0R- %s", composeDmyHmsDate(decomposedDate), msgBody)
+    msgBody = fmt("%s|U0R- %s", composeDmyHmsDate(decomposedDate), msgBody)
     return true, msgBody
   else -- 0th upload try with other flags, or we already tried to upload this line
     local uploadTry = (uploadTryChar == "-" and 0) or (tonumber(uploadTryChar, 10) + 1)
     if uploadTry < MAX_LOG_LINE_UPLOAD_TRIES then
-      msgBody = string.format("%s|U%d%s", msgBody:sub(1, i - 3), uploadTry, msgBody:sub(i + 1))
+      msgBody = fmt("%s|U%d%s", msgBody:sub(1, i - 3), uploadTry, msgBody:sub(i + 1))
       return true, msgBody
     else
       return false, msgBody
@@ -1676,10 +1676,10 @@ local function deleteFullyProcessedLogFileAndUploadingLogFile()
     if not ok then
       local round = UploadingLogFile.deletionRound + 1
       if round < MAX_UPLOADED_LOG_DELETION_ROUNDS then
-        logDev(string.format("Can't delete file %s (3 tries, round %d)", fileName, round), errNo)
+        logDev(fmt("Can't delete file %s (3 tries, round %d)", fileName, round), errNo)
         UploadingLogFile.deletionRound = round
       else
-        logDev(string.format("Can't delete file %s (3 tries, round %d), aborting", fileName, round), errNo)
+        logDev(fmt("Can't delete file %s (3 tries, round %d), aborting", fileName, round), errNo)
         UploadingLogFile = {}
       end
     else
