@@ -225,11 +225,9 @@ local function isNonEmptyTable(t)
   return t ~= nil and type(t) == "table" and next(t) ~= nil
 end
 
---- Formats the given or current date according to the ISO 8601 (long) format
---- `yyyy-mm-ddThh:mm:ss[+-]hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
---- (only the first 19 out of the 25 characters).<br/>
---- Example of returned date: `2016-11-09T04:25:28` (the full date could be
---- `2016-11-09T04:25:28+01:00`).
+--- Formats the given or current date according to the ISO 8601 long format
+--- `yyyy-mm-ddThh:mm:ss.ffff[+-]hh:mm`.<br/>
+--- Example of returned date: `2016-11-09T04:25:28.0000+02:00`.
 ---@param date table? #A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
 ---@return string #The formatted given or current date
 local function dateISO(date)
@@ -237,8 +235,23 @@ local function dateISO(date)
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
-  return fmt("%s-%02d-%02dT%02d:%02d:%02d",
-             tostring(year), month, day, hour, minute, second)
+  -- determine the hour offset corresponding to DST (daylight saving time) Europe:
+  local offset = 0
+  -- January, February, November and December are out
+  if     month > 3 and month < 10 then -- April to September are in
+    offset = 1
+  elseif month == 3 then -- March
+    local marchSunday = math.ceil(31 - ((1.25 * year + 4) % 7))
+    -- in March we are DST if our day is the last Sunday (can be the 25th ~ 31st) or after
+    if day >= marchSunday then offset = 1 end
+  elseif month == 10 then -- October
+    local octoberSunday = math.ceil(31 - ((1.25 * year + 1) % 7))
+    -- in October we are DST if our day is before the last Sunday (can be the 25th ~ 31st)
+    if day < octoberSunday then offset = 1 end
+  end
+
+  return fmt("%s-%02d-%02dT%02d:%02d:%02d.0000+%02d:00",
+             tostring(year), month, day, hour, minute, second, 2 + offset)
 end
 
 --- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`

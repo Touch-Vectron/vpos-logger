@@ -76,11 +76,9 @@ local fmt = string.format
 
 assertAndOrLog = function(condition, errMsg) assert(condition, errMsg) end
 
---- Formats the given or current date according to the ISO 8601 (long) format
---- `yyyy-mm-ddThh:mm:ss[+-]hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
---- (only the first 19 out of the 25 characters).<br/>
---- Example of returned date: `2016-11-09T04:25:28` (the full date could be
---- `2016-11-09T04:25:28+01:00`).
+--- Formats the given or current date according to the ISO 8601 long format
+--- `yyyy-mm-ddThh:mm:ss.ffff[+-]hh:mm`.<br/>
+--- Example of returned date: `2016-11-09T04:25:28.0000+02:00`.
 ---@param date table? #A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
 ---@return string #The formatted given or current date
 local function dateISO(date)
@@ -88,8 +86,23 @@ local function dateISO(date)
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
-  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
-                       tostring(year), month, day, hour, minute, second)
+  -- determine the hour offset corresponding to DST (daylight saving time) Europe:
+  local offset = 0
+  -- January, February, November and December are out
+  if     month > 3 and month < 10 then -- April to September are in
+    offset = 1
+  elseif month == 3 then -- March
+    local marchSunday = math.ceil(31 - ((1.25 * year + 4) % 7))
+    -- in March we are DST if our day is the last Sunday (can be the 25th ~ 31st) or after
+    if day >= marchSunday then offset = 1 end
+  elseif month == 10 then -- October
+    local octoberSunday = math.ceil(31 - ((1.25 * year + 1) % 7))
+    -- in October we are DST if our day is before the last Sunday (can be the 25th ~ 31st)
+    if day < octoberSunday then offset = 1 end
+  end
+
+  return fmt("%s-%02d-%02dT%02d:%02d:%02d.0000+%02d:00",
+             tostring(year), month, day, hour, minute, second, 2 + offset)
 end
 
 --- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`
@@ -167,6 +180,279 @@ end
 --#endregion **********
 
 --#region Helper TESTS **********
+
+--- 
+--- 
+--- NOTE: Correct initialization of the expected data might be depend on the dump settings,
+--- since a string parameter is used for creating the date-time objects.
+local function test_dateISO()
+  local variations = {
+    -- time variations:
+    [1] = {
+      date       = vpos.datetime.DateTime("01.01.2024/00:00:00 +0:00", true),
+      expIsoDate = "2024-01-01T00:00:00.0000+02:00",
+    },
+    [2] = {
+      date       = vpos.datetime.DateTime("01.01.2024/00:00:59 +0:00", true),
+      expIsoDate = "2024-01-01T00:00:59.0000+02:00",
+    },
+    [3] = {
+      date       = vpos.datetime.DateTime("01.01.2024/00:59:00 +0:00", true),
+      expIsoDate = "2024-01-01T00:59:00.0000+02:00",
+    },
+    [4] = {
+      date       = vpos.datetime.DateTime("01.01.2024/00:59:59 +0:00", true),
+      expIsoDate = "2024-01-01T00:59:59.0000+02:00",
+    },
+    [5] = {
+      date       = vpos.datetime.DateTime("01.01.2024/23:59:00 +0:00", true),
+      expIsoDate = "2024-01-01T23:59:00.0000+02:00",
+    },
+    [6] = {
+      date       = vpos.datetime.DateTime("01.01.2024/23:59:59 +0:00", true),
+      expIsoDate = "2024-01-01T23:59:59.0000+02:00",
+    },
+    [7] = {
+      date       = vpos.datetime.DateTime("01.01.2024/01:02:13 +0:00", true),
+      expIsoDate = "2024-01-01T01:02:13.0000+02:00",
+    },
+    [8] = {
+      date       = vpos.datetime.DateTime("01.01.2024/04:25:06 +0:00", true),
+      expIsoDate = "2024-01-01T04:25:06.0000+02:00",
+    },
+    [9] = {
+      date       = vpos.datetime.DateTime("01.01.2024/07:08:29 +0:00", true),
+      expIsoDate = "2024-01-01T07:08:29.0000+02:00",
+    },
+    [10] = {
+      date       = vpos.datetime.DateTime("01.01.2024/11:09:08 +0:00", true),
+      expIsoDate = "2024-01-01T11:09:08.0000+02:00",
+    },
+    [11] = {
+      date       = vpos.datetime.DateTime("01.01.2024/11:07:36 +0:00", true),
+      expIsoDate = "2024-01-01T11:07:36.0000+02:00",
+    },
+    [12] = {
+      date       = vpos.datetime.DateTime("01.01.2024/11:35:04 +0:00", true),
+      expIsoDate = "2024-01-01T11:35:04.0000+02:00",
+    },
+
+    -- date variations (with some time and DST variations):
+    [13] = {
+      date       = vpos.datetime.DateTime("13.02.2025/01:02:03 +0:00", true),
+      expIsoDate = "2025-02-13T01:02:03.0000+02:00",
+    },
+    [14] = {
+      date       = vpos.datetime.DateTime("03.11.2025/22:33:44 +0:00", true),
+      expIsoDate = "2025-11-03T22:33:44.0000+02:00",
+    },
+    [15] = {
+      date       = vpos.datetime.DateTime("30.11.2025/05:32:57 +0:00", true),
+      expIsoDate = "2025-11-30T05:32:57.0000+02:00",
+    },
+    [16] = {
+      date       = vpos.datetime.DateTime("31.12.2025/23:59:59 +0:00", true),
+      expIsoDate = "2025-12-31T23:59:59.0000+02:00",
+    },
+    [17] = {
+      date       = vpos.datetime.DateTime("30.04.2025/10:09:59 +0:00", true),
+      expIsoDate = "2025-04-30T10:09:59.0000+03:00",
+    },
+    [18] = {
+      date       = vpos.datetime.DateTime("01.05.2025/10:59:09 +0:00", true),
+      expIsoDate = "2025-05-01T10:59:09.0000+03:00",
+    },
+    [19] = {
+      date       = vpos.datetime.DateTime("15.08.2025/21:45:59 +0:00", true),
+      expIsoDate = "2025-08-15T21:45:59.0000+03:00",
+    },
+    [20] = {
+      date       = vpos.datetime.DateTime("30.09.2025/21:00:01 +0:00", true),
+      expIsoDate = "2025-09-30T21:00:01.0000+03:00",
+    },
+
+    -- DST variations (last March to last October Sundays, with fixed times):
+    -- 2025-03-30 ~ 2025-10-26
+    [21] = {
+      date       = vpos.datetime.DateTime("29.03.2025/23:59:59 +0:00", true),
+      expIsoDate = "2025-03-29T23:59:59.0000+02:00",
+    },
+    [22] = {
+      date       = vpos.datetime.DateTime("30.03.2025/00:00:00 +0:00", true),
+      expIsoDate = "2025-03-30T00:00:00.0000+03:00",
+    },
+    [23] = {
+      date       = vpos.datetime.DateTime("25.10.2025/23:59:59 +0:00", true),
+      expIsoDate = "2025-10-25T23:59:59.0000+03:00",
+    },
+    [24] = {
+      date       = vpos.datetime.DateTime("26.10.2025/00:00:00 +0:00", true),
+      expIsoDate = "2025-10-26T00:00:00.0000+02:00",
+    },
+    -- 2026-03-29 ~ 2026-10-25
+    [25] = {
+      date       = vpos.datetime.DateTime("28.03.2026/23:59:59 +0:00", true),
+      expIsoDate = "2026-03-28T23:59:59.0000+02:00",
+    },
+    [26] = {
+      date       = vpos.datetime.DateTime("29.03.2026/00:00:00 +0:00", true),
+      expIsoDate = "2026-03-29T00:00:00.0000+03:00",
+    },
+    [27] = {
+      date       = vpos.datetime.DateTime("24.10.2026/23:59:59 +0:00", true),
+      expIsoDate = "2026-10-24T23:59:59.0000+03:00",
+    },
+    [28] = {
+      date       = vpos.datetime.DateTime("25.10.2026/00:00:00 +0:00", true),
+      expIsoDate = "2026-10-25T00:00:00.0000+02:00",
+    },
+    -- 2027-03-28 ~ 2027-10-31
+    [29] = {
+      date       = vpos.datetime.DateTime("27.03.2027/23:59:59 +0:00", true),
+      expIsoDate = "2027-03-27T23:59:59.0000+02:00",
+    },
+    [30] = {
+      date       = vpos.datetime.DateTime("28.03.2027/00:00:00 +0:00", true),
+      expIsoDate = "2027-03-28T00:00:00.0000+03:00",
+    },
+    [31] = {
+      date       = vpos.datetime.DateTime("30.10.2027/23:59:59 +0:00", true),
+      expIsoDate = "2027-10-30T23:59:59.0000+03:00",
+    },
+    [32] = {
+      date       = vpos.datetime.DateTime("31.10.2027/00:00:00 +0:00", true),
+      expIsoDate = "2027-10-31T00:00:00.0000+02:00",
+    },
+    -- 2028-03-26 ~ 2028-10-29
+    [33] = {
+      date       = vpos.datetime.DateTime("25.03.2028/23:59:59 +0:00", true),
+      expIsoDate = "2028-03-25T23:59:59.0000+02:00",
+    },
+    [34] = {
+      date       = vpos.datetime.DateTime("26.03.2028/00:00:00 +0:00", true),
+      expIsoDate = "2028-03-26T00:00:00.0000+03:00",
+    },
+    [35] = {
+      date       = vpos.datetime.DateTime("28.10.2028/23:59:59 +0:00", true),
+      expIsoDate = "2028-10-28T23:59:59.0000+03:00",
+    },
+    [36] = {
+      date       = vpos.datetime.DateTime("29.10.2028/00:00:00 +0:00", true),
+      expIsoDate = "2028-10-29T00:00:00.0000+02:00",
+    },
+    -- 2029-03-25 ~ 2029-10-28
+    [37] = {
+      date       = vpos.datetime.DateTime("24.03.2029/23:59:59 +0:00", true),
+      expIsoDate = "2029-03-24T23:59:59.0000+02:00",
+    },
+    [38] = {
+      date       = vpos.datetime.DateTime("25.03.2029/00:00:00 +0:00", true),
+      expIsoDate = "2029-03-25T00:00:00.0000+03:00",
+    },
+    [39] = {
+      date       = vpos.datetime.DateTime("27.10.2029/23:59:59 +0:00", true),
+      expIsoDate = "2029-10-27T23:59:59.0000+03:00",
+    },
+    [40] = {
+      date       = vpos.datetime.DateTime("28.10.2029/00:00:00 +0:00", true),
+      expIsoDate = "2029-10-28T00:00:00.0000+02:00",
+    },
+    -- 2030-03-31 ~ 2030-10-27
+    [41] = {
+      date       = vpos.datetime.DateTime("30.03.2030/23:59:59 +0:00", true),
+      expIsoDate = "2030-03-30T23:59:59.0000+02:00",
+    },
+    [42] = {
+      date       = vpos.datetime.DateTime("31.03.2030/00:00:00 +0:00", true),
+      expIsoDate = "2030-03-31T00:00:00.0000+03:00",
+    },
+    [43] = {
+      date       = vpos.datetime.DateTime("26.10.2030/23:59:59 +0:00", true),
+      expIsoDate = "2030-10-26T23:59:59.0000+03:00",
+    },
+    [44] = {
+      date       = vpos.datetime.DateTime("27.10.2030/00:00:00 +0:00", true),
+      expIsoDate = "2030-10-27T00:00:00.0000+02:00",
+    },
+    -- 2031-03-30 ~ 2031-10-26
+    [45] = {
+      date       = vpos.datetime.DateTime("29.03.2031/23:59:59 +0:00", true),
+      expIsoDate = "2031-03-29T23:59:59.0000+02:00",
+    },
+    [46] = {
+      date       = vpos.datetime.DateTime("30.03.2031/00:00:00 +0:00", true),
+      expIsoDate = "2031-03-30T00:00:00.0000+03:00",
+    },
+    [47] = {
+      date       = vpos.datetime.DateTime("25.10.2031/23:59:59 +0:00", true),
+      expIsoDate = "2031-10-25T23:59:59.0000+03:00",
+    },
+    [48] = {
+      date       = vpos.datetime.DateTime("26.10.2031/00:00:00 +0:00", true),
+      expIsoDate = "2031-10-26T00:00:00.0000+02:00",
+    },
+    -- 2032-03-28 ~ 2032-10-31
+    [49] = {
+      date       = vpos.datetime.DateTime("27.03.2032/23:59:59 +0:00", true),
+      expIsoDate = "2032-03-27T23:59:59.0000+02:00",
+    },
+    [50] = {
+      date       = vpos.datetime.DateTime("28.03.2032/00:00:00 +0:00", true),
+      expIsoDate = "2032-03-28T00:00:00.0000+03:00",
+    },
+    [51] = {
+      date       = vpos.datetime.DateTime("30.10.2032/23:59:59 +0:00", true),
+      expIsoDate = "2032-10-30T23:59:59.0000+03:00",
+    },
+    [52] = {
+      date       = vpos.datetime.DateTime("31.10.2032/00:00:00 +0:00", true),
+      expIsoDate = "2032-10-31T00:00:00.0000+02:00",
+    },
+    -- 2033-03-27 ~ 2033-10-30
+    [53] = {
+      date       = vpos.datetime.DateTime("26.03.2033/23:59:59 +0:00", true),
+      expIsoDate = "2033-03-26T23:59:59.0000+02:00",
+    },
+    [54] = {
+      date       = vpos.datetime.DateTime("27.03.2033/00:00:00 +0:00", true),
+      expIsoDate = "2033-03-27T00:00:00.0000+03:00",
+    },
+    [55] = {
+      date       = vpos.datetime.DateTime("29.10.2033/23:59:59 +0:00", true),
+      expIsoDate = "2033-10-29T23:59:59.0000+03:00",
+    },
+    [56] = {
+      date       = vpos.datetime.DateTime("30.10.2033/00:00:00 +0:00", true),
+      expIsoDate = "2033-10-30T00:00:00.0000+02:00",
+    },
+    -- 2034-03-26 ~ 2034-10-29
+    [57] = {
+      date       = vpos.datetime.DateTime("25.03.2034/23:59:59 +0:00", true),
+      expIsoDate = "2034-03-25T23:59:59.0000+02:00",
+    },
+    [58] = {
+      date       = vpos.datetime.DateTime("26.03.2034/00:00:00 +0:00", true),
+      expIsoDate = "2034-03-26T00:00:00.0000+03:00",
+    },
+    [59] = {
+      date       = vpos.datetime.DateTime("28.10.2034/23:59:59 +0:00", true),
+      expIsoDate = "2034-10-28T23:59:59.0000+03:00",
+    },
+    [60] = {
+      date       = vpos.datetime.DateTime("29.10.2034/00:00:00 +0:00", true),
+      expIsoDate = "2034-10-29T00:00:00.0000+02:00",
+    },
+  }
+
+  for i, v in ipairs(variations) do
+    local gotIsoDate = dateISO(v.date)
+    if gotIsoDate ~= v.expIsoDate then
+      Log.log(logLevel.Error, true,
+        "Test %d failed. Expected: %s <> Got: %s",
+        i, v.expIsoDate, tostring(gotIsoDate))
+    end
+  end
+end
 
 local function test_decomposeIsoDate_InvalidIsoDateVariations_Errors()
   local invalidVariations = {
@@ -397,6 +683,7 @@ local function test_decomposeIsoDate_ValidIsoDateVariations_IsoDateParts()
 end
 
 local function test_HelperFunctions()
+  test_dateISO()
   test_decomposeIsoDate_InvalidIsoDateVariations_Errors()
   test_decomposeIsoDate_ValidIsoDateVariations_IsoDateParts()
 end
