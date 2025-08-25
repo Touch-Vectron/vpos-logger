@@ -589,13 +589,13 @@ local function test_decomposeIsoDate_InvalidIsoDateVariations_Errors()
           i, tostring(v.expErrMsg), tostring(errMsg))
       end
     elseif not decDate then
-      Log.errorEx(
+      Log.log(logLevel.Error, true,
         "Test %d failed. Expected error: %s <> Got: nil",
         i, tostring(v.expErrMsg))
     elseif decDate.year         or decDate.month          or decDate.day    or
            decDate.hour         or decDate.minute         or decDate.second or
            decDate.timezoneHour or decDate.timezoneMinute then
-      Log.errorEx(
+      Log.log(logLevel.Error, true,
         "Test %d failed. Expected error: %s <> Got yMd Hms tzHm: %s %s %s %s %s %s %s %s",
         i, tostring(v.expErrMsg),
         tostring(decDate.year),         tostring(decDate.month),        tostring(decDate.day),
@@ -646,7 +646,7 @@ local function test_decomposeIsoDate_ValidIsoDateVariations_IsoDateParts()
     if not ok then -- `decDate` is `pcall`s error message here
       local decDateStr = tostring(decDate)
       local errMsg = decDateStr:match(":%d*: (.*)$") or decDateStr
-      Log.errorEx(
+      Log.log(logLevel.Error, true,
         "Test %d failed. Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s <> Got error: %s",
         i,
         tostring(v.expDecDate.y),   tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
@@ -654,7 +654,7 @@ local function test_decomposeIsoDate_ValidIsoDateVariations_IsoDateParts()
         tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin),
         tostring(errMsg))
     elseif not decDate then
-      Log.errorEx(
+      Log.log(logLevel.Error, true,
         "Test %d failed. Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s <> Got: nil",
         i,
         tostring(v.expDecDate.y),   tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
@@ -668,7 +668,7 @@ local function test_decomposeIsoDate_ValidIsoDateVariations_IsoDateParts()
            (not decDate.second         or decDate.second         ~= v.expDecDate.s)   or
            (not decDate.timezoneHour   or decDate.timezoneHour   ~= v.expDecDate.tzH) or
            (not decDate.timezoneMinute or decDate.timezoneMinute ~= v.expDecDate.tzMin) then
-      Log.errorEx(
+      Log.log(logLevel.Error, true,
         "Test %d failed. " ..
         "Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s <> Got: %s %s %s %s %s %s %s %s",
         i,
@@ -1083,7 +1083,7 @@ local function indirectTestWithPercentageChar()
 end
 local function test_LogMessageWithPercentageCharButWithoutVararg()
   local ok, err
-  local errMsg = "bad argument #2 to 'format' (no value)"
+  local errMsg = "bad argument #2 to 'fmt' (no value)"
 
   ok, err = pcall(Log.info,                      "Direct test with percentage char %c without vararg")
   if not ok then
