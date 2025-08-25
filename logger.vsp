@@ -254,74 +254,70 @@ local function dateISO(date)
              tostring(year), month, day, hour, minute, second, 2 + offset)
 end
 
---- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`
---- (length 25).<br/>
---- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
---- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss[+-]hh` (length 22).
+--- Decomposes the given date in ISO 8601 long format `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh:mm`
+--- (length min. 27 max. 32).<br/>
+--- NOTE: Also accepted formats are `yyyy-mm-ddThh:mm:ss.(f+)Z` (UTC length min. 22 max. 27)
+--- and `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh` (length min. 24 max. 29). Notice that the fractional
+--- second must have between 1 and 6 digits.
 --- 
---- RAISES an error if the string is not an ISO 8601 date or a date part can't be converted.
+--- RAISES an error if the string is not an ISO 8601 date.
 ---@param isoDate string #The date in ISO 8601 format
 ---@return table #A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
----   * `hour`, `minute`, `second` integer
+---   * `hour`, `minute`, `second`, `fracSecond` integer
 ---   * `timezoneHour`, `timezoneMinute` integer 
 local function decomposeIsoDate(isoDate)
   assertAndOrLog(isoDate)
 
-  -- ISO 8601: y y y y - m m - d d T h h : m m : s s [+-] h h : m m
-  -- Position: 1       5     8     11    14    17    20       23  25
+  -- ISO 8601: y y y y - m m - d d T h h : m m : s s . f+ [+-Z] h h :    m m
+  -- Position: 1       5     8     11    14    17    20   21+F      24+F   26+F
+  -- where F = digit count of fractional second in range [1, 6]
 
-  local dateLen = string.len(isoDate)
-  if dateLen < 19 then
-    error("String is too short to be an ISO 8601 date or is incomplete (down to seconds required)")
-  elseif dateLen > 25 then
-    error("String is too long to be an ISO 8601 date")
-  elseif dateLen == 21 or dateLen == 23 or dateLen == 24 then
-    error("String length is invalid to be an ISO 8601 date")
+  local dateLen = isoDate:len()
+  if     dateLen < 22 then
+    error("String is too short for an ISO 8601 date or is incomplete (till fractional second required)")
+  elseif dateLen > 32 then
+    error("String is too long for an ISO 8601 date")
   end
-  if string.byte(isoDate, 5)  ~= IsoDate.DATE_SEP_BYTE                        or
-     string.byte(isoDate, 8)  ~= IsoDate.DATE_SEP_BYTE                        or
-     string.byte(isoDate, 11) ~= IsoDate.TIME_MARK_BYTE                       or
-     string.byte(isoDate, 14) ~= IsoDate.TIME_SEP_BYTE                        or
-     string.byte(isoDate, 17) ~= IsoDate.TIME_SEP_BYTE                        or
-     (dateLen == 20 and string.byte(isoDate, 20) ~= IsoDate.TZ_UTC_MARK_BYTE) or
-     ((dateLen == 22 or dateLen == 25) and
-      (string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
-       string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE))               or
-     (dateLen == 25 and
-      ((string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
-        string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE) or
-       string.byte(isoDate, 23) ~= IsoDate.TIME_SEP_BYTE)) then
+
+  local y, mo, d, h, min, s, f, tzmk, tzh, tzmin = isoDate:match(
+    "^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)%.(%d+)([+%-Z])(%d*)(:?%d*)$")
+
+  if tzh and tzh:len() == 0 then tzh = nil end
+  if tzmin then
+    local tzminLen = tzmin:len()
+    if     tzminLen == 0 then tzmin = nil
+    elseif tzminLen == 1 then error("String is not an ISO 8601 date")
+    else                      tzmin = tzmin:sub(2) end
+  end
+
+  if not y or not mo or not d or not h or not min or not s or not f or not tzmk or
+     (tzmk == "Z" and (tzh or tzmin)) or (tzmk ~= "Z" and not tzh) then
     error("String is not an ISO 8601 date")
   end
 
-  local year = tonumber(string.sub(isoDate, 1, 4))
-  if not year then error("Can't convert year to number") end
-  local month = tonumber(string.sub(isoDate, 6, 7))
-  if not month then error("Can't convert month to number") end
-  local day = tonumber(string.sub(isoDate, 9, 10))
-  if not day then error("Can't convert day to number") end
+  if           f:len()     >  6 then error("Fractional second contains too many digits") end
+  if tzh   and tzh:len()   ~= 2 then error("Time zone hour doesn't contain 2 digits") end
+  if tzmin and tzmin:len() ~= 2 then error("Time zone minute doesn't contain 2 digits") end
 
-  local hour = tonumber(string.sub(isoDate, 12, 13))
-  if not hour then error("Can't convert hour to number") end
-  local minute = tonumber(string.sub(isoDate, 15, 16))
-  if not minute then error("Can't convert minute to number") end
-  local second = tonumber(string.sub(isoDate, 18, 19))
-  if not second then error("Can't convert second to number") end
+  local year  = tonumber(y)
+  local month = tonumber(mo)
+  local day   = tonumber(d)
+  assertAndOrLog(year and month and day)
 
-  local timezoneHour = 0 ---@type number?
-  if dateLen == 22 or dateLen == 25 then
-    timezoneHour = tonumber(string.sub(isoDate, 20, 22))
-    if not timezoneHour then error("Can't convert time zone hour to number") end
-  end
-  local timezoneMinute = 0 ---@type number?
-  if dateLen == 25 then
-    timezoneMinute = tonumber(string.sub(isoDate, 24, 25))
-    if not timezoneMinute then error("Can't convert time zone minute to number") end
-  end
+  local hour        = tonumber(h)
+  local minute      = tonumber(min)
+  local second      = tonumber(s)
+  local fracSecond  = tonumber("0." .. f)
+  assertAndOrLog(hour and minute and second and fracSecond)
+
+  local timezoneHour    = tonumber((tzh   and tzmk .. tzh)   or 0)
+  local timezoneMinute  = tonumber((tzmin and tzmk .. tzmin) or 0)
+  assertAndOrLog(timezoneHour and timezoneMinute)
 
   return {
-    year = year, month = month, day = day, hour = hour, minute = minute, second = second,
+    year = year, month = month, day = day,
+    hour = hour, minute = minute, second = second, fracSecond = fracSecond,
     timezoneHour = timezoneHour, timezoneMinute = timezoneMinute,
   }
 end
@@ -921,7 +917,7 @@ local function decomposeLoggerOfflineMessageString(str)
   assertAndOrLog(str)
 
   local scriptName, sendingIsoDate, messageBody = str:match(
-    "^(%S+)%s+(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%S*)%s+(.-)\r?\n$")
+    "^(%S+)%s+(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%.%d+[+%-Z]%S*)%s+(.-)\r?\n$")
   if not scriptName then return nil end
 
   return {
@@ -938,7 +934,7 @@ local function decomposeNonLoggerOfflineMessageString(str)
   assertAndOrLog(str)
 
   local sendingIsoDate, messageLevel, qLastStr, qFirstStr, messageBody = str:match(
-    "^(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%S*) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
+    "^(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%.%d+[+%-Z]%S*) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
   if not sendingIsoDate then return nil end
 
   local qLast = tonumber(qLastStr, 10)

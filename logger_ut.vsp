@@ -76,6 +76,14 @@ local fmt = string.format
 
 assertAndOrLog = function(condition, errMsg) assert(condition, errMsg) end
 
+--- Extracts and returns the error reason from the given error message of a
+--- raised error. On extraction failure, returns the given error message.
+---@param errMsg string #The error message of a raised error
+---@return string #The extracted error reason on success, otherwise the given error message
+local function getErrorReason(errMsg)
+  return errMsg:match(":%d+: (.*)$") or errMsg
+end
+
 --- Formats the given or current date according to the ISO 8601 long format
 --- `yyyy-mm-ddThh:mm:ss.ffff[+-]hh:mm`.<br/>
 --- Example of returned date: `2016-11-09T04:25:28.0000+02:00`.
@@ -105,74 +113,70 @@ local function dateISO(date)
              tostring(year), month, day, hour, minute, second, 2 + offset)
 end
 
---- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`
---- (length 25).<br/>
---- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
---- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss[+-]hh` (length 22).
+--- Decomposes the given date in ISO 8601 long format `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh:mm`
+--- (length min. 27 max. 32).<br/>
+--- NOTE: Accepted formats are also `yyyy-mm-ddThh:mm:ss.(f+)Z` (UTC length min. 22 max. 27)
+--- and `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh` (length min. 24 max. 29). Notice that the fractional
+--- second must have between 1 and 6 digits.
 --- 
---- Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
+--- RAISES an error if the string is not an ISO 8601 date.
 ---@param isoDate string #The date in ISO 8601 format
 ---@return table #A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
----   * `hour`, `minute`, `second` integer
+---   * `hour`, `minute`, `second`, `fracSecond` integer
 ---   * `timezoneHour`, `timezoneMinute` integer 
 local function decomposeIsoDate(isoDate)
   assertAndOrLog(isoDate)
 
-  -- ISO 8601: y y y y - m m - d d T h h : m m : s s [+-] h h : m m
-  -- Position: 1       5     8     11    14    17    20       23  25
+  -- ISO 8601: y y y y - m m - d d T h h : m m : s s . f+ [+-Z] h h :    m m
+  -- Position: 1       5     8     11    14    17    20   21+F      24+F   26+F
+  -- where F = digit count of fractional second in range [1, 6]
 
-  local dateLen = string.len(isoDate)
-  if dateLen < 19 then
-    error("String is too short to be an ISO 8601 date or is incomplete (down to seconds required)")
-  elseif dateLen > 25 then
-    error("String is too long to be an ISO 8601 date")
-  elseif dateLen == 21 or dateLen == 23 or dateLen == 24 then
-    error("String length is invalid to be an ISO 8601 date")
+  local dateLen = isoDate:len()
+  if     dateLen < 22 then
+    error("String is too short for an ISO 8601 date or is incomplete (till fractional second required)")
+  elseif dateLen > 32 then
+    error("String is too long for an ISO 8601 date")
   end
-  if string.byte(isoDate, 5)  ~= IsoDate.DATE_SEP_BYTE                        or
-     string.byte(isoDate, 8)  ~= IsoDate.DATE_SEP_BYTE                        or
-     string.byte(isoDate, 11) ~= IsoDate.TIME_MARK_BYTE                       or
-     string.byte(isoDate, 14) ~= IsoDate.TIME_SEP_BYTE                        or
-     string.byte(isoDate, 17) ~= IsoDate.TIME_SEP_BYTE                        or
-     (dateLen == 20 and string.byte(isoDate, 20) ~= IsoDate.TZ_UTC_MARK_BYTE) or
-     ((dateLen == 22 or dateLen == 25) and
-      (string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
-       string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE))               or
-     (dateLen == 25 and
-      ((string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
-        string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE) or
-       string.byte(isoDate, 23) ~= IsoDate.TIME_SEP_BYTE)) then
+
+  local y, mo, d, h, min, s, f, tzmk, tzh, tzmin = isoDate:match(
+    "^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)%.(%d+)([+%-Z])(%d*)(:?%d*)$")
+
+  if tzh and tzh:len() == 0 then tzh = nil end
+  if tzmin then
+    local tzminLen = tzmin:len()
+    if     tzminLen == 0 then tzmin = nil
+    elseif tzminLen == 1 then error("String is not an ISO 8601 date")
+    else                      tzmin = tzmin:sub(2) end
+  end
+
+  if not y or not mo or not d or not h or not min or not s or not f or not tzmk or
+     (tzmk == "Z" and (tzh or tzmin)) or (tzmk ~= "Z" and not tzh) then
     error("String is not an ISO 8601 date")
   end
 
-  local year = tonumber(string.sub(isoDate, 1, 4))
-  if not year then error("Can't convert year to number") end
-  local month = tonumber(string.sub(isoDate, 6, 7))
-  if not month then error("Can't convert month to number") end
-  local day = tonumber(string.sub(isoDate, 9, 10))
-  if not day then error("Can't convert day to number") end
+  if           f:len()     >  6 then error("Fractional second contains too many digits") end
+  if tzh   and tzh:len()   ~= 2 then error("Time zone hour doesn't contain 2 digits") end
+  if tzmin and tzmin:len() ~= 2 then error("Time zone minute doesn't contain 2 digits") end
 
-  local hour = tonumber(string.sub(isoDate, 12, 13))
-  if not hour then error("Can't convert hour to number") end
-  local minute = tonumber(string.sub(isoDate, 15, 16))
-  if not minute then error("Can't convert minute to number") end
-  local second = tonumber(string.sub(isoDate, 18, 19))
-  if not second then error("Can't convert second to number") end
+  local year  = tonumber(y)
+  local month = tonumber(mo)
+  local day   = tonumber(d)
+  assertAndOrLog(year and month and day)
 
-  local timezoneHour = 0 ---@type number?
-  if dateLen == 22 or dateLen == 25 then
-    timezoneHour = tonumber(string.sub(isoDate, 20, 22))
-    if not timezoneHour then error("Can't convert time zone hour to number") end
-  end
-  local timezoneMinute = 0 ---@type number?
-  if dateLen == 25 then
-    timezoneMinute = tonumber(string.sub(isoDate, 24, 25))
-    if not timezoneMinute then error("Can't convert time zone minute to number") end
-  end
+  local hour        = tonumber(h)
+  local minute      = tonumber(min)
+  local second      = tonumber(s)
+  local fracSecond  = tonumber("0." .. f)
+  assertAndOrLog(hour and minute and second and fracSecond)
+
+  local timezoneHour    = tonumber((tzh   and tzmk .. tzh)   or 0)
+  local timezoneMinute  = tonumber((tzmin and tzmk .. tzmin) or 0)
+  assertAndOrLog(timezoneHour and timezoneMinute)
 
   return {
-    year = year, month = month, day = day, hour = hour, minute = minute, second = second,
+    year = year, month = month, day = day,
+    hour = hour, minute = minute, second = second, fracSecond = fracSecond,
     timezoneHour = timezoneHour, timezoneMinute = timezoneMinute,
   }
 end
@@ -458,133 +462,164 @@ local function test_decomposeIsoDate_InvalidIsoDateVariations_Errors()
   local invalidVariations = {
     [1] = {
       isoDate   = "",
-      expErrMsg = "String is too short to be an ISO 8601 date or is incomplete (down to seconds required)",
+      expErrMsg = "String is too short for an ISO 8601 date or is incomplete (till fractional second required)",
     },
     [2] = {
       isoDate   = "bla bla",
-      expErrMsg = "String is too short to be an ISO 8601 date or is incomplete (down to seconds required)",
+      expErrMsg = "String is too short for an ISO 8601 date or is incomplete (till fractional second required)",
     },
     [3] = {
       isoDate   = "2024-01-02T12:40",
-      expErrMsg = "String is too short to be an ISO 8601 date or is incomplete (down to seconds required)",
+      expErrMsg = "String is too short for an ISO 8601 date or is incomplete (till fractional second required)",
     },
     [4] = {
-      isoDate   = "2024-01-03T13:41:52+01:00a",
-      expErrMsg = "String is too long to be an ISO 8601 date",
+      isoDate   = "2024-01-03T13:41:52.1234567+01:00",
+      expErrMsg = "String is too long for an ISO 8601 date",
     },
     [5] = {
-      isoDate  = "2024-01-04T14:41:52+2",
-      expErrMsg = "String length is invalid to be an ISO 8601 date",
+      isoDate   = "2024-01-03T13:41:52.1234567Z",
+      expErrMsg = "Fractional second contains too many digits",
     },
     [6] = {
-      isoDate   = "2024-01-04T14:41:52+02:",
-      expErrMsg = "String length is invalid to be an ISO 8601 date",
-    },
-    [7] = {
-      isoDate   = "2024-01-04T14:41:52+02:0",
-      expErrMsg = "String length is invalid to be an ISO 8601 date",
-    },
-    [8] = {
-      isoDate   = "2024/01-05T15:43:54",
+      isoDate   = "2024-01-04T14:41:52.0+",
       expErrMsg = "String is not an ISO 8601 date",
     },
+    [7] = {
+      isoDate   = "2024-01-04T14:41:52.0+2",
+      expErrMsg = "Time zone hour doesn't contain 2 digits",
+    },
+    [8] = {
+      isoDate   = "2024-01-04T14:41:52.0+234",
+      expErrMsg = "Time zone hour doesn't contain 2 digits",
+    },
     [9] = {
-      isoDate   = "2024-01.05T15:43:54",
+      isoDate   = "2024-01-04T14:41:52.0+:",
       expErrMsg = "String is not an ISO 8601 date",
     },
     [10] = {
-      isoDate   = "2024-01-05t15:43:54",
+      isoDate   = "2024-01-04T14:41:52.0+02:",
       expErrMsg = "String is not an ISO 8601 date",
     },
     [11] = {
-      isoDate   = "2024-01-05T15-43:54",
-      expErrMsg = "String is not an ISO 8601 date",
+      isoDate   = "2024-01-04T14:41:52.0+02:0",
+      expErrMsg = "Time zone minute doesn't contain 2 digits",
     },
     [12] = {
-      isoDate   = "2024-01-05T15:43.54",
-      expErrMsg = "String is not an ISO 8601 date",
+      isoDate   = "2024-01-04T14:41:52.0+02:012",
+      expErrMsg = "Time zone minute doesn't contain 2 digits",
     },
     [13] = {
-      isoDate   = "2024-01-05T15:43:54z",
+      isoDate   = "2024/01-05T15:43:54.0000+01:00",
       expErrMsg = "String is not an ISO 8601 date",
     },
     [14] = {
-      isoDate   = "2024-01-05T15:43:54/03:00",
+      isoDate   = "2024-01.05T15:43:54.0000+01:00",
       expErrMsg = "String is not an ISO 8601 date",
     },
     [15] = {
-      isoDate   = "2024-01-05T15:43:54+03.00",
+      isoDate   = "2024-01-05t15:43:54.0000+01:00",
       expErrMsg = "String is not an ISO 8601 date",
     },
     [16] = {
-      isoDate   = "a024-01-06T16:44:55",
-      expErrMsg = "Can't convert year to number",
+      isoDate   = "2024-01-05T15-43:54.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [17] = {
-      isoDate   = "202b-01-06T16:44:55Z",
-      expErrMsg = "Can't convert year to number",
+      isoDate   = "2024-01-05T15:43.54.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [18] = {
-      isoDate   = "2024-c1-06T16:44:55-04:30",
-      expErrMsg = "Can't convert month to number",
+      isoDate   = "2024-01-05T15:43:54-0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [19] = {
-      isoDate   = "2024-0d-06T16:44:55",
-      expErrMsg = "Can't convert month to number",
+      isoDate   = "2024-01-05T15:43:54.0000z",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [20] = {
-      isoDate   = "2024-01-e6T16:44:55-04",
-      expErrMsg = "Can't convert day to number",
+      isoDate   = "2024-01-05T15:43:54.0000/03:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [21] = {
-      isoDate   = "2024-01-0fT16:44:55-04:30",
-      expErrMsg = "Can't convert day to number",
+      isoDate   = "2024-01-05T15:43:54.0000+03.00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [22] = {
-      isoDate   = "2024-01-06Tg6:44:55",
-      expErrMsg = "Can't convert hour to number",
+      isoDate   = "a024-01-06T16:44:55.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [23] = {
-      isoDate   = "2024-01-06T1h:44:55Z",
-      expErrMsg = "Can't convert hour to number",
+      isoDate   = "202b-01-06T16:44:55.0000Z",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [24] = {
-      isoDate   = "2024-01-06T16:i4:55-04:30",
-      expErrMsg = "Can't convert minute to number",
+      isoDate   = "2024-c1-06T16:44:55.0000-04:30",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [25] = {
-      isoDate   = "2024-01-06T16:4j:55",
-      expErrMsg = "Can't convert minute to number",
+      isoDate   = "2024-0d-06T16:44:55.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [26] = {
-      isoDate   = "2024-01-06T16:44:k5-04",
-      expErrMsg = "Can't convert second to number",
+      isoDate   = "2024-01-e6T16:44:55.0000-04",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [27] = {
-      isoDate   = "2024-01-06T16:44:5m-04:30",
-      expErrMsg = "Can't convert second to number",
+      isoDate   = "2024-01-0fT16:44:55.0000-04:30",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [28] = {
-      isoDate   = "2024-01-06T16:44:55-n4",
-      expErrMsg = "Can't convert time zone hour to number",
+      isoDate   = "2024-01-06Tg6:44:55.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [29] = {
-      isoDate   = "2024-01-06T16:44:55-0p:30",
-      expErrMsg = "Can't convert time zone hour to number",
+      isoDate   = "2024-01-06T1h:44:55.0000Z",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [30] = {
-      isoDate   = "2024-01-06T16:44:55-04:3q",
-      expErrMsg = "Can't convert time zone minute to number",
+      isoDate   = "2024-01-06T16:i4:55.0000-04:30",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [31] = {
+      isoDate   = "2024-01-06T16:4j:55.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [32] = {
+      isoDate   = "2024-01-06T16:44:k5.0000-04",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [33] = {
+      isoDate   = "2024-01-06T16:44:5m.0000-04:30",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [34] = {
+      isoDate   = "2024-01-06T16:44:55.n000-0o",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [35] = {
+      isoDate   = "2024-01-06T16:44:55.123p-0o",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [36] = {
+      isoDate   = "2024-01-06T16:44:55.0000-q4",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [37] = {
+      isoDate   = "2024-01-06T16:44:55.0000-0r:30",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [38] = {
+      isoDate   = "2024-01-06T16:44:55.0000-04:3s",
+      expErrMsg = "String is not an ISO 8601 date",
     },
   }
 
   for i, v in ipairs(invalidVariations) do
     local ok, decDate = pcall(decomposeIsoDate, v.isoDate) -- the decomposed date
     if not ok then -- `decDate` is `pcall`s error message here
-      local decDateStr = tostring(decDate)
-      local errMsg = decDateStr:match(":%d*: (.*)$") or decDateStr
+      local errMsg = getErrorReason(tostring(decDate))
       if errMsg ~= v.expErrMsg then
-        Log.warnEx(
+        Log.log(logLevel.Warn, true,
           "Test %d partially failed. Expected error: %s <> Got error: %s",
           i, tostring(v.expErrMsg), tostring(errMsg))
       end
@@ -592,15 +627,15 @@ local function test_decomposeIsoDate_InvalidIsoDateVariations_Errors()
       Log.log(logLevel.Error, true,
         "Test %d failed. Expected error: %s <> Got: nil",
         i, tostring(v.expErrMsg))
-    elseif decDate.year         or decDate.month          or decDate.day    or
-           decDate.hour         or decDate.minute         or decDate.second or
-           decDate.timezoneHour or decDate.timezoneMinute then
+    elseif decDate.year       or decDate.month        or decDate.day    or
+           decDate.hour       or decDate.minute       or decDate.second or
+           decDate.fracSecond or decDate.timezoneHour or decDate.timezoneMinute then
       Log.log(logLevel.Error, true,
-        "Test %d failed. Expected error: %s <> Got yMd Hms tzHm: %s %s %s %s %s %s %s %s",
+        "Test %d failed. Expected error: %s <> Got yMd Hms tzHm: %s %s %s %s %s %s %s %s %s",
         i, tostring(v.expErrMsg),
-        tostring(decDate.year),         tostring(decDate.month),        tostring(decDate.day),
-        tostring(decDate.hour),         tostring(decDate.minute),       tostring(decDate.second),
-        tostring(decDate.timezoneHour), tostring(decDate.timezoneMinute))
+        tostring(decDate.year),       tostring(decDate.month),        tostring(decDate.day),
+        tostring(decDate.hour),       tostring(decDate.minute),       tostring(decDate.second),
+        tostring(decDate.fracSecond), tostring(decDate.timezoneHour), tostring(decDate.timezoneMinute))
     end
   end
 end
@@ -608,76 +643,92 @@ end
 local function test_decomposeIsoDate_ValidIsoDateVariations_IsoDateParts()
   local validVariations = {
     [1] = {
-      isoDate    = "2024-01-02T12:40:51",
-      expDecDate = {y=2024, mo=1, d=2, h=12, min=40, s=51, tzH=0, tzMin=0},
+      isoDate    = "2024-01-02T12:40:51.0Z",
+      expDecDate = {y=2024, mo=1, d=2, h=12, min=40, s=51, f=0.0, tzH=0, tzMin=0},
     },
     [2] = {
-      isoDate    = "2024-01-05T15:43:54Z",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=0, tzMin=0},
+      isoDate    = "2024-01-05T15:43:54.000000Z",
+      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, f=0.0, tzH=0, tzMin=0},
     },
     [3] = {
-      isoDate    = "2024-01-05T15:43:54+03",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=3, tzMin=0},
+      isoDate    = "2024-01-05T15:43:54.1+03",
+      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, f=0.1, tzH=3, tzMin=0},
     },
     [4] = {
-      isoDate    = "2024-01-05T15:43:54-03",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=-3, tzMin=0},
+      isoDate    = "2024-01-05T15:43:54.11+03",
+      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, f=0.11, tzH=3, tzMin=0},
     },
     [5] = {
-      isoDate    = "2024-01-05T15:43:54+03:00",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=3, tzMin=0},
+      isoDate    = "2024-01-05T15:43:54.2-03",
+      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, f=0.2, tzH=-3, tzMin=0},
     },
     [6] = {
-      isoDate    = "2024-01-05T15:43:54-03:00",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=-3, tzMin=0},
+      isoDate    = "2024-01-05T15:43:54.222222-03",
+      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, f=0.222222, tzH=-3, tzMin=0},
     },
     [7] = {
-      isoDate    = "2024-01-05T15:43:54+04:30",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=4, tzMin=30},
+      isoDate    = "2025-10-26T07:27:04.3+03:00",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.3, tzH=3, tzMin=0},
     },
     [8] = {
-      isoDate    = "2024-01-05T15:43:54-04:30",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=-4, tzMin=30},
+      isoDate    = "2025-10-26T07:27:04.303+03:00",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.303, tzH=3, tzMin=0},
+    },
+    [9] = {
+      isoDate    = "2025-10-26T07:27:04.3000-03:00",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.3, tzH=-3, tzMin=0},
+    },
+    [10] = {
+      isoDate    = "2025-10-26T07:27:04.4000+04:30",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.4, tzH=4, tzMin=30},
+    },
+    [11] = {
+      isoDate    = "2025-10-26T07:27:04.40005-04:30",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.40005, tzH=-4, tzMin=-30},
+    },
+    [12] = {
+      isoDate    = "2025-10-26T07:27:04.456789-04:30",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.456789, tzH=-4, tzMin=-30},
     },
   }
 
   for i, v in ipairs(validVariations) do
     local ok, decDate = pcall(decomposeIsoDate, v.isoDate) -- the decomposed date
     if not ok then -- `decDate` is `pcall`s error message here
-      local decDateStr = tostring(decDate)
-      local errMsg = decDateStr:match(":%d*: (.*)$") or decDateStr
+      local errMsg = getErrorReason(tostring(decDate))
       Log.log(logLevel.Error, true,
-        "Test %d failed. Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s <> Got error: %s",
+        "Test %d failed. Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s %s <> Got error: %s",
         i,
-        tostring(v.expDecDate.y),   tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
-        tostring(v.expDecDate.h),   tostring(v.expDecDate.min), tostring(v.expDecDate.s),
-        tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin),
+        tostring(v.expDecDate.y), tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
+        tostring(v.expDecDate.h), tostring(v.expDecDate.min), tostring(v.expDecDate.s),
+        tostring(v.expDecDate.f), tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin),
         tostring(errMsg))
     elseif not decDate then
       Log.log(logLevel.Error, true,
-        "Test %d failed. Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s <> Got: nil",
+        "Test %d failed. Expected yMd Hmsf tzHm: %s %s %s %s %s %s %s %s %s <> Got: nil",
         i,
-        tostring(v.expDecDate.y),   tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
-        tostring(v.expDecDate.h),   tostring(v.expDecDate.min), tostring(v.expDecDate.s),
-        tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin))
+        tostring(v.expDecDate.y), tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
+        tostring(v.expDecDate.h), tostring(v.expDecDate.min), tostring(v.expDecDate.s),
+        tostring(v.expDecDate.f), tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin))
     elseif (not decDate.year           or decDate.year           ~= v.expDecDate.y)   or
            (not decDate.month          or decDate.month          ~= v.expDecDate.mo)  or
            (not decDate.day            or decDate.day            ~= v.expDecDate.d)   or
            (not decDate.hour           or decDate.hour           ~= v.expDecDate.h)   or
            (not decDate.minute         or decDate.minute         ~= v.expDecDate.min) or
            (not decDate.second         or decDate.second         ~= v.expDecDate.s)   or
+           (not decDate.fracSecond     or decDate.fracSecond     ~= v.expDecDate.f)   or
            (not decDate.timezoneHour   or decDate.timezoneHour   ~= v.expDecDate.tzH) or
            (not decDate.timezoneMinute or decDate.timezoneMinute ~= v.expDecDate.tzMin) then
       Log.log(logLevel.Error, true,
         "Test %d failed. " ..
-        "Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s <> Got: %s %s %s %s %s %s %s %s",
+        "Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s %s <> Got: %s %s %s %s %s %s %s %s %s",
         i,
-        tostring(v.expDecDate.y),   tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
-        tostring(v.expDecDate.h),   tostring(v.expDecDate.min), tostring(v.expDecDate.s),
-        tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin),
-        tostring(decDate.year),         tostring(decDate.month),        tostring(decDate.day),
-        tostring(decDate.hour),         tostring(decDate.minute),       tostring(decDate.second),
-        tostring(decDate.timezoneHour), tostring(decDate.timezoneMinute))
+        tostring(v.expDecDate.y), tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
+        tostring(v.expDecDate.h), tostring(v.expDecDate.min), tostring(v.expDecDate.s),
+        tostring(v.expDecDate.f), tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin),
+        tostring(decDate.year),       tostring(decDate.month),        tostring(decDate.day),
+        tostring(decDate.hour),       tostring(decDate.minute),       tostring(decDate.second),
+        tostring(decDate.fracSecond), tostring(decDate.timezoneHour), tostring(decDate.timezoneMinute))
     end
   end
 end
