@@ -934,7 +934,7 @@ local function decomposeNonLoggerOfflineMessageString(str)
   assertAndOrLog(str)
 
   local sendingIsoDate, messageLevel, qLastStr, qFirstStr, messageBody = str:match(
-    "^(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%.%d+[+%-Z]%S*) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
+    "^(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%.%d+[+%-Z]%S*) %[(%S+)%] >> ([+%-]?%d+):([+%-]?%d+) (.-)\r?\n$")
   if not sendingIsoDate then return nil end
 
   local qLast = tonumber(qLastStr, 10)
