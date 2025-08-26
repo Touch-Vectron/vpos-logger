@@ -47,7 +47,7 @@ LOG_SIZE = 300
 LOG_TRUNCATE_SIZE = 1000
 
 --- URL where logs are shown on Papertrail.
-URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
+LOG_URL = "http://rza.ro:55514"
 
 --- ISO 8601 date constants.
 local IsoDate = {
@@ -784,7 +784,7 @@ end
 ---@param level string? #The minimum log level for logging a line/message; defaults to `logLevel.Info` if `nil`
 ---@param logType string? #The logging type/mode; defaults to `LogType.ONLINE` if `nil`
 ---@param logSize number? #The max. log file size in kilobytes before rollover; defaults to 300 if `nil`
----@param url string? #The Papertrail URL; defaults to `URL_PAPERTRAIL` if `nil`
+---@param url string? #The URL where to send logs; defaults to `LOG_URL` if `nil`
 ---@param scriptName string? #The name of the script which uses this logger; defaults to " " if `nil`
 ---@param scriptVersion string? #The version of the script which uses this logger; defaults to "0" if `nil`
 ---@param scriptUpdate string? #The last update date of the script which uses this logger; defaults to " " if `nil`
@@ -839,7 +839,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     levelNumber   = mapLogLevelNameToNumber(level or logLevel.Info),
     logType       = logType or LogType.ONLINE,
     logSize       = logSize or 300,
-    url           = url or URL_PAPERTRAIL,
+    url           = url or LOG_URL,
     scriptName    = scriptName or " ",
     scriptVersion = scriptVersion or "0",
     scriptUpdate  = scriptUpdate or " ",
@@ -1177,7 +1177,7 @@ local function readIni()
     LOG_TYPE          = (initTab.LOGS.LOG_TYPE          and string.lower(tostring(initTab.LOGS.LOG_TYPE)))  or LOG_TYPE
     LOG_SIZE          = (initTab.LOGS.LOG_SIZE          and tonumber(initTab.LOGS.LOG_SIZE))                or LOG_SIZE
     LOG_TRUNCATE_SIZE = (initTab.LOGS.LOG_TRUNCATE_SIZE and tonumber(initTab.LOGS.LOG_TRUNCATE_SIZE))       or LOG_TRUNCATE_SIZE
-    URL_PAPERTRAIL    = (initTab.LOGS.URL_PAPERTRAIL    and tostring(initTab.LOGS.URL_PAPERTRAIL))          or URL_PAPERTRAIL
+    LOG_URL           = (initTab.LOGS.LOG_URL           and tostring(initTab.LOGS.LOG_URL))                 or LOG_URL
   end
 
   local scriptName    = vpos.script.currentScript():getName() or ""
@@ -1201,8 +1201,7 @@ local function readIni()
       vpos.view.showWindow("Log settings wrong!\001Please set LOG_LEVEL = off or import the logger script!")
       vpos.script.exitScript()
     end
-    Log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, URL_PAPERTRAIL, scriptName,
-                 scriptVersion, scriptUpdate)
+    Log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, LOG_URL, scriptName, scriptVersion, scriptUpdate)
   end
 
   Log.scriptInfo(vpos.utils.encodeJSON(initTab or {}))

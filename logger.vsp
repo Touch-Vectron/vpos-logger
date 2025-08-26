@@ -39,7 +39,7 @@ LogType = {
 --- Common maximum log file size for rollover of all scripts.
 COMMON_LOG_SIZE = 500
 --- URL where logs are shown on papertrail.
-URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
+LOG_URL = "http://rza.ro:55514"
 
 --- Company name.
 COMP_NAME = ""
@@ -256,7 +256,7 @@ end
 
 --- Decomposes the given date in ISO 8601 long format `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh:mm`
 --- (length min. 27 max. 32).<br/>
---- NOTE: Also accepted formats are `yyyy-mm-ddThh:mm:ss.(f+)Z` (UTC length min. 22 max. 27)
+--- NOTE: Accepted formats are also `yyyy-mm-ddThh:mm:ss.(f+)Z` (UTC length min. 22 max. 27)
 --- and `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh` (length min. 24 max. 29). Notice that the fractional
 --- second must have between 1 and 6 digits.
 --- 
@@ -445,7 +445,7 @@ local function logDev(devMsg, errMsg)
   ListPushLeft({
     datetime     = dateISO(),
     scriptName   = LOGGER_SCRIPT_NAME,
-    url          = URL_PAPERTRAIL,
+    url          = LOG_URL,
     logType      = LogType.ONLINE,
     logSize      = COMMON_LOG_SIZE,
     priority     = Priority.USER_DEV,
@@ -466,7 +466,7 @@ if ENABLE_LOGGER_LOGS then
     ListPushLeft({
       datetime     = dateISO(),
       scriptName   = LOGGER_SCRIPT_NAME,
-      url          = URL_PAPERTRAIL,
+      url          = LOG_URL,
       logType      = LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = Priority.USER_DEBUG,
@@ -497,7 +497,7 @@ if ENABLE_LOGGER_LOGS then
       ListPushLeft({
         datetime     = dateISO(),
         scriptName   = LOGGER_SCRIPT_NAME,
-        url          = URL_PAPERTRAIL,
+        url          = LOG_URL,
         logType      = LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_DEBUG,
@@ -1006,7 +1006,7 @@ local function handleUnnoticedConnectionDown(q, b, offlineCount, onlineCount)
   else
     ListPushLeft({
       scriptName   = LOGGER_SCRIPT_NAME,
-      url          = URL_PAPERTRAIL,
+      url          = LOG_URL,
       logType      = LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = Priority.USER_ERROR,
@@ -1230,7 +1230,7 @@ local function sendFromQueue(q, b)
       else
         ListPushLeft({
           scriptName   = LOGGER_SCRIPT_NAME,
-          url          = URL_PAPERTRAIL,
+          url          = LOG_URL,
           logType      = LogType.ONLINE,
           logSize      = COMMON_LOG_SIZE,
           priority     = Priority.USER_ERROR,
@@ -1241,7 +1241,7 @@ local function sendFromQueue(q, b)
     else
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
-        url          = URL_PAPERTRAIL,
+        url          = LOG_URL,
         logType      = LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_ERROR,
@@ -1282,7 +1282,7 @@ function handleQueues(q, b)
       eraseQueue(q) -- empty the log queue
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
-        url          = URL_PAPERTRAIL,
+        url          = LOG_URL,
         logType      = LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_WARN,
@@ -1301,7 +1301,7 @@ function handleQueues(q, b)
         if not ok then
           ListPushLeft({
             scriptName   = LOGGER_SCRIPT_NAME,
-            url          = URL_PAPERTRAIL,
+            url          = LOG_URL,
             logType      = LogType.ONLINE,
             logSize      = COMMON_LOG_SIZE,
             priority     = Priority.USER_ERROR,
@@ -1336,7 +1336,7 @@ local function determineMaxLogLinesForUploadRound()
 end
 
 local function isLoggerConnectedOnline()
-  renewLogSocket(URL_PAPERTRAIL)
+  renewLogSocket(LOG_URL)
   return LogSocket and LogSocket:isOpen() and LogSocket:isConnected()
 end
 
@@ -1576,7 +1576,7 @@ local function uploadLogFileLine(line)
     ListPushLeft({
       datetime     = UploadingLogFile.lastIsoDate,
       scriptName   = UploadingLogFile.lastScriptName,
-      url          = URL_PAPERTRAIL,
+      url          = LOG_URL,
       logType      = LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = mapMessageLevelToPriority(UploadingLogFile.lastMessageLevel),
@@ -1603,7 +1603,7 @@ local function uploadLogFileLine(line)
     ListPushLeft({
       datetime     = decomposedMsg.sendingIsoDate,
       scriptName   = UploadingLogFile.lastScriptName,
-      url          = URL_PAPERTRAIL,
+      url          = LOG_URL,
       logType      = LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = mapMessageLevelToPriority(decomposedMsg.messageLevel),
