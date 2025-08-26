@@ -1,10 +1,10 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 1.5
+--!ScriptVersion: 1.6
 -- Copyright (C) 2024 Touch Vectron
 -- Script name: logger_ut.vsp
--- Script description: Unit tests for logger (logger.vsp and logger_pasteInYourCode) 
+-- Script description: Unit tests for logger (logger.vsp and logger_pasteInYourCode.vsp) 
 -- Author: R. Arjocu
--- Date: 05/2024
+-- Date: 08/2025
 
 
 --#region Script constants and enums **********
