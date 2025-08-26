@@ -36,7 +36,7 @@ LogType = {
   ONLINE  = "online",
 }
 
---- Common maximum log file size for rollover of all scripts.
+--- Common maximum log file size in kilobytes for rollover of all scripts.
 COMMON_LOG_SIZE = 500
 --- The URL where the logs will be sent.
 LOG_URL = "http://rza.ro:55514"
