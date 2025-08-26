@@ -46,7 +46,7 @@ LOG_SIZE = 300
 --- a full send; truncation is the default behavior.
 LOG_TRUNCATE_SIZE = 1000
 
---- URL where logs are shown on Papertrail.
+--- The URL where the logs will be sent.
 LOG_URL = "http://rza.ro:55514"
 
 --- ISO 8601 date constants.
