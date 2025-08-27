@@ -3,7 +3,7 @@
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
 -- Date: 08/2025
--- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
+-- Description: use metadata and queue for sending log messages to URL (online)
 
 
 --#region Script constants, enums and types **********

@@ -464,7 +464,7 @@ function testOnline()
   Log.trace ("PRI 15   gesto request response: "..response)
 
   wait:close()
-  vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
+  vpos.view.showWindow("Test DONE!\001Check online logs!")
 end
 
 function testOnlineFastlogs()
@@ -512,7 +512,7 @@ function testOnlineFastlogs()
   Log.trace ("gesto request response: "..response)
 
   wait:close()
-  vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
+  vpos.view.showWindow("Test DONE!\001Check online logs!")
 end
 
 ------------------------------------------------------------------
