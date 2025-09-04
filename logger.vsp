@@ -443,7 +443,6 @@ end
 ---@param errMsg string|number? The error message or number; might be `nil` exceptionally
 local function logDev(devMsg, errMsg)
   ListPushLeft({
-    datetime     = dateISO(),
     scriptName   = LOGGER_SCRIPT_NAME,
     url          = LOG_URL,
     logType      = LogType.ONLINE,
@@ -464,7 +463,6 @@ if ENABLE_LOGGER_LOGS then
     local msg = (msgFormat and fmt(msgFormat, ...)) or ""
     if info then msg = fmt("%d:%s: %s", info.currentline, info.name, msg) end
     ListPushLeft({
-      datetime     = dateISO(),
       scriptName   = LOGGER_SCRIPT_NAME,
       url          = LOG_URL,
       logType      = LogType.ONLINE,
@@ -495,7 +493,6 @@ if ENABLE_LOGGER_LOGS then
       local msg = errMsg or "assertion failed"
       if info then msg = fmt("%d:%s: %s", info.currentline, info.name, msg) end
       ListPushLeft({
-        datetime     = dateISO(),
         scriptName   = LOGGER_SCRIPT_NAME,
         url          = LOG_URL,
         logType      = LogType.ONLINE,
