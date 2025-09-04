@@ -1,10 +1,10 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 1.5
+--!ScriptVersion: 1.6
 -- Copyright (C) 2024 Touch Vectron
 -- Script name: logger_ut.vsp
--- Script description: Unit tests for logger (logger.vsp and logger_pasteInYourCode) 
+-- Script description: Unit tests for logger (logger.vsp and logger_pasteInYourCode.vsp) 
 -- Author: R. Arjocu
--- Date: 05/2024
+-- Date: 08/2025
 
 
 --#region Script constants and enums **********
@@ -46,8 +46,8 @@ LOG_SIZE = 300
 --- a full send; truncation is the default behavior.
 LOG_TRUNCATE_SIZE = 1000
 
---- URL where logs are shown on Papertrail.
-URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
+--- The URL where the logs will be sent.
+LOG_URL = "http://rza.ro:55514"
 
 --- ISO 8601 date constants.
 local IsoDate = {
@@ -72,13 +72,21 @@ Log = {}
 
 --#region Helper functions **********
 
+local fmt = string.format
+
 assertAndOrLog = function(condition, errMsg) assert(condition, errMsg) end
 
---- Formats the given or current date according to the ISO 8601 (long) format
---- `yyyy-mm-ddThh:mm:ss[+-]hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
---- (only the first 19 out of the 25 characters).<br/>
---- Example of returned date: `2016-11-09T04:25:28` (the full date could be
---- `2016-11-09T04:25:28+01:00`).
+--- Extracts and returns the error reason from the given error message of a
+--- raised error. On extraction failure, returns the given error message.
+---@param errMsg string #The error message of a raised error
+---@return string #The extracted error reason on success, otherwise the given error message
+local function getErrorReason(errMsg)
+  return errMsg:match(":%d+: (.*)$") or errMsg
+end
+
+--- Formats the given or current date according to the ISO 8601 long format
+--- `yyyy-mm-ddThh:mm:ss.ffff[+-]hh:mm`.<br/>
+--- Example of returned date: `2016-11-09T04:25:28.0000+02:00`.
 ---@param date table? #A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
 ---@return string #The formatted given or current date
 local function dateISO(date)
@@ -86,78 +94,89 @@ local function dateISO(date)
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
-  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
-                       tostring(year), month, day, hour, minute, second)
+  -- determine the hour offset corresponding to DST (daylight saving time) Europe:
+  local offset = 0
+  -- January, February, November and December are out
+  if     month > 3 and month < 10 then -- April to September are in
+    offset = 1
+  elseif month == 3 then -- March
+    local marchSunday = math.ceil(31 - ((1.25 * year + 4) % 7))
+    -- in March we are DST if our day is the last Sunday (can be the 25th ~ 31st) or after
+    if day >= marchSunday then offset = 1 end
+  elseif month == 10 then -- October
+    local octoberSunday = math.ceil(31 - ((1.25 * year + 1) % 7))
+    -- in October we are DST if our day is before the last Sunday (can be the 25th ~ 31st)
+    if day < octoberSunday then offset = 1 end
+  end
+
+  return fmt("%s-%02d-%02dT%02d:%02d:%02d.0000+%02d:00",
+             tostring(year), month, day, hour, minute, second, 2 + offset)
 end
 
---- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`
---- (length 25).<br/>
---- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
---- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss[+-]hh` (length 22).
+--- Decomposes the given date in ISO 8601 long format `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh:mm`
+--- (length min. 27 max. 32).<br/>
+--- NOTE: Accepted formats are also `yyyy-mm-ddThh:mm:ss.(f+)Z` (UTC length min. 22 max. 27)
+--- and `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh` (length min. 24 max. 29). Notice that the fractional
+--- second must have between 1 and 6 digits.
 --- 
---- Raises an error if the string is not an ISO 8601 date or a date part can't be converted.
+--- RAISES an error if the string is not an ISO 8601 date.
 ---@param isoDate string #The date in ISO 8601 format
 ---@return table #A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
----   * `hour`, `minute`, `second` integer
+---   * `hour`, `minute`, `second`, `fracSecond` integer
 ---   * `timezoneHour`, `timezoneMinute` integer 
 local function decomposeIsoDate(isoDate)
   assertAndOrLog(isoDate)
 
-  -- ISO 8601: y y y y - m m - d d T h h : m m : s s [+-] h h : m m
-  -- Position: 1       5     8     11    14    17    20       23  25
+  -- ISO 8601: y y y y - m m - d d T h h : m m : s s . f+ [+-Z] h h :    m m
+  -- Position: 1       5     8     11    14    17    20   21+F      24+F   26+F
+  -- where F = digit count of fractional second in range [1, 6]
 
-  local dateLen = string.len(isoDate)
-  if dateLen < 19 then
-    error("String is too short to be an ISO 8601 date or is incomplete (down to seconds required)")
-  elseif dateLen > 25 then
-    error("String is too long to be an ISO 8601 date")
-  elseif dateLen == 21 or dateLen == 23 or dateLen == 24 then
-    error("String length is invalid to be an ISO 8601 date")
+  local dateLen = isoDate:len()
+  if     dateLen < 22 then
+    error("String is too short for an ISO 8601 date or is incomplete (till fractional second required)")
+  elseif dateLen > 32 then
+    error("String is too long for an ISO 8601 date")
   end
-  if string.byte(isoDate, 5)  ~= IsoDate.DATE_SEP_BYTE                        or
-     string.byte(isoDate, 8)  ~= IsoDate.DATE_SEP_BYTE                        or
-     string.byte(isoDate, 11) ~= IsoDate.TIME_MARK_BYTE                       or
-     string.byte(isoDate, 14) ~= IsoDate.TIME_SEP_BYTE                        or
-     string.byte(isoDate, 17) ~= IsoDate.TIME_SEP_BYTE                        or
-     (dateLen == 20 and string.byte(isoDate, 20) ~= IsoDate.TZ_UTC_MARK_BYTE) or
-     ((dateLen == 22 or dateLen == 25) and
-      (string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
-       string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE))               or
-     (dateLen == 25 and
-      ((string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
-        string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE) or
-       string.byte(isoDate, 23) ~= IsoDate.TIME_SEP_BYTE)) then
+
+  local y, mo, d, h, min, s, f, tzmk, tzh, tzmin = isoDate:match(
+    "^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)%.(%d+)([+%-Z])(%d*)(:?%d*)$")
+
+  if tzh and tzh:len() == 0 then tzh = nil end
+  if tzmin then
+    local tzminLen = tzmin:len()
+    if     tzminLen == 0 then tzmin = nil
+    elseif tzminLen == 1 then error("String is not an ISO 8601 date")
+    else                      tzmin = tzmin:sub(2) end
+  end
+
+  if not y or not mo or not d or not h or not min or not s or not f or not tzmk or
+     (tzmk == "Z" and (tzh or tzmin)) or (tzmk ~= "Z" and not tzh) then
     error("String is not an ISO 8601 date")
   end
 
-  local year = tonumber(string.sub(isoDate, 1, 4))
-  if not year then error("Can't convert year to number") end
-  local month = tonumber(string.sub(isoDate, 6, 7))
-  if not month then error("Can't convert month to number") end
-  local day = tonumber(string.sub(isoDate, 9, 10))
-  if not day then error("Can't convert day to number") end
+  if           f:len()     >  6 then error("Fractional second contains too many digits") end
+  if tzh   and tzh:len()   ~= 2 then error("Time zone hour doesn't contain 2 digits") end
+  if tzmin and tzmin:len() ~= 2 then error("Time zone minute doesn't contain 2 digits") end
 
-  local hour = tonumber(string.sub(isoDate, 12, 13))
-  if not hour then error("Can't convert hour to number") end
-  local minute = tonumber(string.sub(isoDate, 15, 16))
-  if not minute then error("Can't convert minute to number") end
-  local second = tonumber(string.sub(isoDate, 18, 19))
-  if not second then error("Can't convert second to number") end
+  local year  = tonumber(y)
+  local month = tonumber(mo)
+  local day   = tonumber(d)
+  assertAndOrLog(year and month and day)
 
-  local timezoneHour = 0 ---@type number?
-  if dateLen == 22 or dateLen == 25 then
-    timezoneHour = tonumber(string.sub(isoDate, 20, 22))
-    if not timezoneHour then error("Can't convert time zone hour to number") end
-  end
-  local timezoneMinute = 0 ---@type number?
-  if dateLen == 25 then
-    timezoneMinute = tonumber(string.sub(isoDate, 24, 25))
-    if not timezoneMinute then error("Can't convert time zone minute to number") end
-  end
+  local hour        = tonumber(h)
+  local minute      = tonumber(min)
+  local second      = tonumber(s)
+  local fracSecond  = tonumber("0." .. f)
+  assertAndOrLog(hour and minute and second and fracSecond)
+
+  local timezoneHour    = tonumber((tzh   and tzmk .. tzh)   or 0)
+  local timezoneMinute  = tonumber((tzmin and tzmk .. tzmin) or 0)
+  assertAndOrLog(timezoneHour and timezoneMinute)
 
   return {
-    year = year, month = month, day = day, hour = hour, minute = minute, second = second,
+    year = year, month = month, day = day,
+    hour = hour, minute = minute, second = second, fracSecond = fracSecond,
     timezoneHour = timezoneHour, timezoneMinute = timezoneMinute,
   }
 end
@@ -166,153 +185,457 @@ end
 
 --#region Helper TESTS **********
 
+--- 
+--- 
+--- NOTE: Correct initialization of the expected data might be depend on the dump settings,
+--- since a string parameter is used for creating the date-time objects.
+local function test_dateISO()
+  local variations = {
+    -- time variations:
+    [1] = {
+      date       = vpos.datetime.DateTime("01.01.2024/00:00:00 +0:00", true),
+      expIsoDate = "2024-01-01T00:00:00.0000+02:00",
+    },
+    [2] = {
+      date       = vpos.datetime.DateTime("01.01.2024/00:00:59 +0:00", true),
+      expIsoDate = "2024-01-01T00:00:59.0000+02:00",
+    },
+    [3] = {
+      date       = vpos.datetime.DateTime("01.01.2024/00:59:00 +0:00", true),
+      expIsoDate = "2024-01-01T00:59:00.0000+02:00",
+    },
+    [4] = {
+      date       = vpos.datetime.DateTime("01.01.2024/00:59:59 +0:00", true),
+      expIsoDate = "2024-01-01T00:59:59.0000+02:00",
+    },
+    [5] = {
+      date       = vpos.datetime.DateTime("01.01.2024/23:59:00 +0:00", true),
+      expIsoDate = "2024-01-01T23:59:00.0000+02:00",
+    },
+    [6] = {
+      date       = vpos.datetime.DateTime("01.01.2024/23:59:59 +0:00", true),
+      expIsoDate = "2024-01-01T23:59:59.0000+02:00",
+    },
+    [7] = {
+      date       = vpos.datetime.DateTime("01.01.2024/01:02:13 +0:00", true),
+      expIsoDate = "2024-01-01T01:02:13.0000+02:00",
+    },
+    [8] = {
+      date       = vpos.datetime.DateTime("01.01.2024/04:25:06 +0:00", true),
+      expIsoDate = "2024-01-01T04:25:06.0000+02:00",
+    },
+    [9] = {
+      date       = vpos.datetime.DateTime("01.01.2024/07:08:29 +0:00", true),
+      expIsoDate = "2024-01-01T07:08:29.0000+02:00",
+    },
+    [10] = {
+      date       = vpos.datetime.DateTime("01.01.2024/11:09:08 +0:00", true),
+      expIsoDate = "2024-01-01T11:09:08.0000+02:00",
+    },
+    [11] = {
+      date       = vpos.datetime.DateTime("01.01.2024/11:07:36 +0:00", true),
+      expIsoDate = "2024-01-01T11:07:36.0000+02:00",
+    },
+    [12] = {
+      date       = vpos.datetime.DateTime("01.01.2024/11:35:04 +0:00", true),
+      expIsoDate = "2024-01-01T11:35:04.0000+02:00",
+    },
+
+    -- date variations (with some time and DST variations):
+    [13] = {
+      date       = vpos.datetime.DateTime("13.02.2025/01:02:03 +0:00", true),
+      expIsoDate = "2025-02-13T01:02:03.0000+02:00",
+    },
+    [14] = {
+      date       = vpos.datetime.DateTime("03.11.2025/22:33:44 +0:00", true),
+      expIsoDate = "2025-11-03T22:33:44.0000+02:00",
+    },
+    [15] = {
+      date       = vpos.datetime.DateTime("30.11.2025/05:32:57 +0:00", true),
+      expIsoDate = "2025-11-30T05:32:57.0000+02:00",
+    },
+    [16] = {
+      date       = vpos.datetime.DateTime("31.12.2025/23:59:59 +0:00", true),
+      expIsoDate = "2025-12-31T23:59:59.0000+02:00",
+    },
+    [17] = {
+      date       = vpos.datetime.DateTime("30.04.2025/10:09:59 +0:00", true),
+      expIsoDate = "2025-04-30T10:09:59.0000+03:00",
+    },
+    [18] = {
+      date       = vpos.datetime.DateTime("01.05.2025/10:59:09 +0:00", true),
+      expIsoDate = "2025-05-01T10:59:09.0000+03:00",
+    },
+    [19] = {
+      date       = vpos.datetime.DateTime("15.08.2025/21:45:59 +0:00", true),
+      expIsoDate = "2025-08-15T21:45:59.0000+03:00",
+    },
+    [20] = {
+      date       = vpos.datetime.DateTime("30.09.2025/21:00:01 +0:00", true),
+      expIsoDate = "2025-09-30T21:00:01.0000+03:00",
+    },
+
+    -- DST variations (last March to last October Sundays, with fixed times):
+    -- 2025-03-30 ~ 2025-10-26
+    [21] = {
+      date       = vpos.datetime.DateTime("29.03.2025/23:59:59 +0:00", true),
+      expIsoDate = "2025-03-29T23:59:59.0000+02:00",
+    },
+    [22] = {
+      date       = vpos.datetime.DateTime("30.03.2025/00:00:00 +0:00", true),
+      expIsoDate = "2025-03-30T00:00:00.0000+03:00",
+    },
+    [23] = {
+      date       = vpos.datetime.DateTime("25.10.2025/23:59:59 +0:00", true),
+      expIsoDate = "2025-10-25T23:59:59.0000+03:00",
+    },
+    [24] = {
+      date       = vpos.datetime.DateTime("26.10.2025/00:00:00 +0:00", true),
+      expIsoDate = "2025-10-26T00:00:00.0000+02:00",
+    },
+    -- 2026-03-29 ~ 2026-10-25
+    [25] = {
+      date       = vpos.datetime.DateTime("28.03.2026/23:59:59 +0:00", true),
+      expIsoDate = "2026-03-28T23:59:59.0000+02:00",
+    },
+    [26] = {
+      date       = vpos.datetime.DateTime("29.03.2026/00:00:00 +0:00", true),
+      expIsoDate = "2026-03-29T00:00:00.0000+03:00",
+    },
+    [27] = {
+      date       = vpos.datetime.DateTime("24.10.2026/23:59:59 +0:00", true),
+      expIsoDate = "2026-10-24T23:59:59.0000+03:00",
+    },
+    [28] = {
+      date       = vpos.datetime.DateTime("25.10.2026/00:00:00 +0:00", true),
+      expIsoDate = "2026-10-25T00:00:00.0000+02:00",
+    },
+    -- 2027-03-28 ~ 2027-10-31
+    [29] = {
+      date       = vpos.datetime.DateTime("27.03.2027/23:59:59 +0:00", true),
+      expIsoDate = "2027-03-27T23:59:59.0000+02:00",
+    },
+    [30] = {
+      date       = vpos.datetime.DateTime("28.03.2027/00:00:00 +0:00", true),
+      expIsoDate = "2027-03-28T00:00:00.0000+03:00",
+    },
+    [31] = {
+      date       = vpos.datetime.DateTime("30.10.2027/23:59:59 +0:00", true),
+      expIsoDate = "2027-10-30T23:59:59.0000+03:00",
+    },
+    [32] = {
+      date       = vpos.datetime.DateTime("31.10.2027/00:00:00 +0:00", true),
+      expIsoDate = "2027-10-31T00:00:00.0000+02:00",
+    },
+    -- 2028-03-26 ~ 2028-10-29
+    [33] = {
+      date       = vpos.datetime.DateTime("25.03.2028/23:59:59 +0:00", true),
+      expIsoDate = "2028-03-25T23:59:59.0000+02:00",
+    },
+    [34] = {
+      date       = vpos.datetime.DateTime("26.03.2028/00:00:00 +0:00", true),
+      expIsoDate = "2028-03-26T00:00:00.0000+03:00",
+    },
+    [35] = {
+      date       = vpos.datetime.DateTime("28.10.2028/23:59:59 +0:00", true),
+      expIsoDate = "2028-10-28T23:59:59.0000+03:00",
+    },
+    [36] = {
+      date       = vpos.datetime.DateTime("29.10.2028/00:00:00 +0:00", true),
+      expIsoDate = "2028-10-29T00:00:00.0000+02:00",
+    },
+    -- 2029-03-25 ~ 2029-10-28
+    [37] = {
+      date       = vpos.datetime.DateTime("24.03.2029/23:59:59 +0:00", true),
+      expIsoDate = "2029-03-24T23:59:59.0000+02:00",
+    },
+    [38] = {
+      date       = vpos.datetime.DateTime("25.03.2029/00:00:00 +0:00", true),
+      expIsoDate = "2029-03-25T00:00:00.0000+03:00",
+    },
+    [39] = {
+      date       = vpos.datetime.DateTime("27.10.2029/23:59:59 +0:00", true),
+      expIsoDate = "2029-10-27T23:59:59.0000+03:00",
+    },
+    [40] = {
+      date       = vpos.datetime.DateTime("28.10.2029/00:00:00 +0:00", true),
+      expIsoDate = "2029-10-28T00:00:00.0000+02:00",
+    },
+    -- 2030-03-31 ~ 2030-10-27
+    [41] = {
+      date       = vpos.datetime.DateTime("30.03.2030/23:59:59 +0:00", true),
+      expIsoDate = "2030-03-30T23:59:59.0000+02:00",
+    },
+    [42] = {
+      date       = vpos.datetime.DateTime("31.03.2030/00:00:00 +0:00", true),
+      expIsoDate = "2030-03-31T00:00:00.0000+03:00",
+    },
+    [43] = {
+      date       = vpos.datetime.DateTime("26.10.2030/23:59:59 +0:00", true),
+      expIsoDate = "2030-10-26T23:59:59.0000+03:00",
+    },
+    [44] = {
+      date       = vpos.datetime.DateTime("27.10.2030/00:00:00 +0:00", true),
+      expIsoDate = "2030-10-27T00:00:00.0000+02:00",
+    },
+    -- 2031-03-30 ~ 2031-10-26
+    [45] = {
+      date       = vpos.datetime.DateTime("29.03.2031/23:59:59 +0:00", true),
+      expIsoDate = "2031-03-29T23:59:59.0000+02:00",
+    },
+    [46] = {
+      date       = vpos.datetime.DateTime("30.03.2031/00:00:00 +0:00", true),
+      expIsoDate = "2031-03-30T00:00:00.0000+03:00",
+    },
+    [47] = {
+      date       = vpos.datetime.DateTime("25.10.2031/23:59:59 +0:00", true),
+      expIsoDate = "2031-10-25T23:59:59.0000+03:00",
+    },
+    [48] = {
+      date       = vpos.datetime.DateTime("26.10.2031/00:00:00 +0:00", true),
+      expIsoDate = "2031-10-26T00:00:00.0000+02:00",
+    },
+    -- 2032-03-28 ~ 2032-10-31
+    [49] = {
+      date       = vpos.datetime.DateTime("27.03.2032/23:59:59 +0:00", true),
+      expIsoDate = "2032-03-27T23:59:59.0000+02:00",
+    },
+    [50] = {
+      date       = vpos.datetime.DateTime("28.03.2032/00:00:00 +0:00", true),
+      expIsoDate = "2032-03-28T00:00:00.0000+03:00",
+    },
+    [51] = {
+      date       = vpos.datetime.DateTime("30.10.2032/23:59:59 +0:00", true),
+      expIsoDate = "2032-10-30T23:59:59.0000+03:00",
+    },
+    [52] = {
+      date       = vpos.datetime.DateTime("31.10.2032/00:00:00 +0:00", true),
+      expIsoDate = "2032-10-31T00:00:00.0000+02:00",
+    },
+    -- 2033-03-27 ~ 2033-10-30
+    [53] = {
+      date       = vpos.datetime.DateTime("26.03.2033/23:59:59 +0:00", true),
+      expIsoDate = "2033-03-26T23:59:59.0000+02:00",
+    },
+    [54] = {
+      date       = vpos.datetime.DateTime("27.03.2033/00:00:00 +0:00", true),
+      expIsoDate = "2033-03-27T00:00:00.0000+03:00",
+    },
+    [55] = {
+      date       = vpos.datetime.DateTime("29.10.2033/23:59:59 +0:00", true),
+      expIsoDate = "2033-10-29T23:59:59.0000+03:00",
+    },
+    [56] = {
+      date       = vpos.datetime.DateTime("30.10.2033/00:00:00 +0:00", true),
+      expIsoDate = "2033-10-30T00:00:00.0000+02:00",
+    },
+    -- 2034-03-26 ~ 2034-10-29
+    [57] = {
+      date       = vpos.datetime.DateTime("25.03.2034/23:59:59 +0:00", true),
+      expIsoDate = "2034-03-25T23:59:59.0000+02:00",
+    },
+    [58] = {
+      date       = vpos.datetime.DateTime("26.03.2034/00:00:00 +0:00", true),
+      expIsoDate = "2034-03-26T00:00:00.0000+03:00",
+    },
+    [59] = {
+      date       = vpos.datetime.DateTime("28.10.2034/23:59:59 +0:00", true),
+      expIsoDate = "2034-10-28T23:59:59.0000+03:00",
+    },
+    [60] = {
+      date       = vpos.datetime.DateTime("29.10.2034/00:00:00 +0:00", true),
+      expIsoDate = "2034-10-29T00:00:00.0000+02:00",
+    },
+  }
+
+  for i, v in ipairs(variations) do
+    local gotIsoDate = dateISO(v.date)
+    if gotIsoDate ~= v.expIsoDate then
+      Log.log(logLevel.Error, true,
+        "Test %d failed. Expected: %s <> Got: %s",
+        i, v.expIsoDate, tostring(gotIsoDate))
+    end
+  end
+end
+
 local function test_decomposeIsoDate_InvalidIsoDateVariations_Errors()
   local invalidVariations = {
     [1] = {
       isoDate   = "",
-      expErrMsg = "String is too short to be an ISO 8601 date or is incomplete (down to seconds required)",
+      expErrMsg = "String is too short for an ISO 8601 date or is incomplete (till fractional second required)",
     },
     [2] = {
       isoDate   = "bla bla",
-      expErrMsg = "String is too short to be an ISO 8601 date or is incomplete (down to seconds required)",
+      expErrMsg = "String is too short for an ISO 8601 date or is incomplete (till fractional second required)",
     },
     [3] = {
       isoDate   = "2024-01-02T12:40",
-      expErrMsg = "String is too short to be an ISO 8601 date or is incomplete (down to seconds required)",
+      expErrMsg = "String is too short for an ISO 8601 date or is incomplete (till fractional second required)",
     },
     [4] = {
-      isoDate   = "2024-01-03T13:41:52+01:00a",
-      expErrMsg = "String is too long to be an ISO 8601 date",
+      isoDate   = "2024-01-03T13:41:52.1234567+01:00",
+      expErrMsg = "String is too long for an ISO 8601 date",
     },
     [5] = {
-      isoDate  = "2024-01-04T14:41:52+2",
-      expErrMsg = "String length is invalid to be an ISO 8601 date",
+      isoDate   = "2024-01-03T13:41:52.1234567Z",
+      expErrMsg = "Fractional second contains too many digits",
     },
     [6] = {
-      isoDate   = "2024-01-04T14:41:52+02:",
-      expErrMsg = "String length is invalid to be an ISO 8601 date",
-    },
-    [7] = {
-      isoDate   = "2024-01-04T14:41:52+02:0",
-      expErrMsg = "String length is invalid to be an ISO 8601 date",
-    },
-    [8] = {
-      isoDate   = "2024/01-05T15:43:54",
+      isoDate   = "2024-01-04T14:41:52.0+",
       expErrMsg = "String is not an ISO 8601 date",
     },
+    [7] = {
+      isoDate   = "2024-01-04T14:41:52.0+2",
+      expErrMsg = "Time zone hour doesn't contain 2 digits",
+    },
+    [8] = {
+      isoDate   = "2024-01-04T14:41:52.0+234",
+      expErrMsg = "Time zone hour doesn't contain 2 digits",
+    },
     [9] = {
-      isoDate   = "2024-01.05T15:43:54",
+      isoDate   = "2024-01-04T14:41:52.0+:",
       expErrMsg = "String is not an ISO 8601 date",
     },
     [10] = {
-      isoDate   = "2024-01-05t15:43:54",
+      isoDate   = "2024-01-04T14:41:52.0+02:",
       expErrMsg = "String is not an ISO 8601 date",
     },
     [11] = {
-      isoDate   = "2024-01-05T15-43:54",
-      expErrMsg = "String is not an ISO 8601 date",
+      isoDate   = "2024-01-04T14:41:52.0+02:0",
+      expErrMsg = "Time zone minute doesn't contain 2 digits",
     },
     [12] = {
-      isoDate   = "2024-01-05T15:43.54",
-      expErrMsg = "String is not an ISO 8601 date",
+      isoDate   = "2024-01-04T14:41:52.0+02:012",
+      expErrMsg = "Time zone minute doesn't contain 2 digits",
     },
     [13] = {
-      isoDate   = "2024-01-05T15:43:54z",
+      isoDate   = "2024/01-05T15:43:54.0000+01:00",
       expErrMsg = "String is not an ISO 8601 date",
     },
     [14] = {
-      isoDate   = "2024-01-05T15:43:54/03:00",
+      isoDate   = "2024-01.05T15:43:54.0000+01:00",
       expErrMsg = "String is not an ISO 8601 date",
     },
     [15] = {
-      isoDate   = "2024-01-05T15:43:54+03.00",
+      isoDate   = "2024-01-05t15:43:54.0000+01:00",
       expErrMsg = "String is not an ISO 8601 date",
     },
     [16] = {
-      isoDate   = "a024-01-06T16:44:55",
-      expErrMsg = "Can't convert year to number",
+      isoDate   = "2024-01-05T15-43:54.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [17] = {
-      isoDate   = "202b-01-06T16:44:55Z",
-      expErrMsg = "Can't convert year to number",
+      isoDate   = "2024-01-05T15:43.54.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [18] = {
-      isoDate   = "2024-c1-06T16:44:55-04:30",
-      expErrMsg = "Can't convert month to number",
+      isoDate   = "2024-01-05T15:43:54-0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [19] = {
-      isoDate   = "2024-0d-06T16:44:55",
-      expErrMsg = "Can't convert month to number",
+      isoDate   = "2024-01-05T15:43:54.0000z",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [20] = {
-      isoDate   = "2024-01-e6T16:44:55-04",
-      expErrMsg = "Can't convert day to number",
+      isoDate   = "2024-01-05T15:43:54.0000/03:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [21] = {
-      isoDate   = "2024-01-0fT16:44:55-04:30",
-      expErrMsg = "Can't convert day to number",
+      isoDate   = "2024-01-05T15:43:54.0000+03.00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [22] = {
-      isoDate   = "2024-01-06Tg6:44:55",
-      expErrMsg = "Can't convert hour to number",
+      isoDate   = "a024-01-06T16:44:55.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [23] = {
-      isoDate   = "2024-01-06T1h:44:55Z",
-      expErrMsg = "Can't convert hour to number",
+      isoDate   = "202b-01-06T16:44:55.0000Z",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [24] = {
-      isoDate   = "2024-01-06T16:i4:55-04:30",
-      expErrMsg = "Can't convert minute to number",
+      isoDate   = "2024-c1-06T16:44:55.0000-04:30",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [25] = {
-      isoDate   = "2024-01-06T16:4j:55",
-      expErrMsg = "Can't convert minute to number",
+      isoDate   = "2024-0d-06T16:44:55.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [26] = {
-      isoDate   = "2024-01-06T16:44:k5-04",
-      expErrMsg = "Can't convert second to number",
+      isoDate   = "2024-01-e6T16:44:55.0000-04",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [27] = {
-      isoDate   = "2024-01-06T16:44:5m-04:30",
-      expErrMsg = "Can't convert second to number",
+      isoDate   = "2024-01-0fT16:44:55.0000-04:30",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [28] = {
-      isoDate   = "2024-01-06T16:44:55-n4",
-      expErrMsg = "Can't convert time zone hour to number",
+      isoDate   = "2024-01-06Tg6:44:55.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [29] = {
-      isoDate   = "2024-01-06T16:44:55-0p:30",
-      expErrMsg = "Can't convert time zone hour to number",
+      isoDate   = "2024-01-06T1h:44:55.0000Z",
+      expErrMsg = "String is not an ISO 8601 date",
     },
     [30] = {
-      isoDate   = "2024-01-06T16:44:55-04:3q",
-      expErrMsg = "Can't convert time zone minute to number",
+      isoDate   = "2024-01-06T16:i4:55.0000-04:30",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [31] = {
+      isoDate   = "2024-01-06T16:4j:55.0000+01:00",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [32] = {
+      isoDate   = "2024-01-06T16:44:k5.0000-04",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [33] = {
+      isoDate   = "2024-01-06T16:44:5m.0000-04:30",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [34] = {
+      isoDate   = "2024-01-06T16:44:55.n000-0o",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [35] = {
+      isoDate   = "2024-01-06T16:44:55.123p-0o",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [36] = {
+      isoDate   = "2024-01-06T16:44:55.0000-q4",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [37] = {
+      isoDate   = "2024-01-06T16:44:55.0000-0r:30",
+      expErrMsg = "String is not an ISO 8601 date",
+    },
+    [38] = {
+      isoDate   = "2024-01-06T16:44:55.0000-04:3s",
+      expErrMsg = "String is not an ISO 8601 date",
     },
   }
 
   for i, v in ipairs(invalidVariations) do
     local ok, decDate = pcall(decomposeIsoDate, v.isoDate) -- the decomposed date
     if not ok then -- `decDate` is `pcall`s error message here
-      local decDateStr = tostring(decDate)
-      local errMsg = decDateStr:match(":%d*: (.*)$") or decDateStr
+      local errMsg = getErrorReason(tostring(decDate))
       if errMsg ~= v.expErrMsg then
-        Log.warnEx(
+        Log.log(logLevel.Warn, true,
           "Test %d partially failed. Expected error: %s <> Got error: %s",
           i, tostring(v.expErrMsg), tostring(errMsg))
       end
     elseif not decDate then
-      Log.errorEx(
+      Log.log(logLevel.Error, true,
         "Test %d failed. Expected error: %s <> Got: nil",
         i, tostring(v.expErrMsg))
-    elseif decDate.year         or decDate.month          or decDate.day    or
-           decDate.hour         or decDate.minute         or decDate.second or
-           decDate.timezoneHour or decDate.timezoneMinute then
-      Log.errorEx(
-        "Test %d failed. Expected error: %s <> Got yMd Hms tzHm: %s %s %s %s %s %s %s %s",
+    elseif decDate.year       or decDate.month        or decDate.day    or
+           decDate.hour       or decDate.minute       or decDate.second or
+           decDate.fracSecond or decDate.timezoneHour or decDate.timezoneMinute then
+      Log.log(logLevel.Error, true,
+        "Test %d failed. Expected error: %s <> Got yMd Hms tzHm: %s %s %s %s %s %s %s %s %s",
         i, tostring(v.expErrMsg),
-        tostring(decDate.year),         tostring(decDate.month),        tostring(decDate.day),
-        tostring(decDate.hour),         tostring(decDate.minute),       tostring(decDate.second),
-        tostring(decDate.timezoneHour), tostring(decDate.timezoneMinute))
+        tostring(decDate.year),       tostring(decDate.month),        tostring(decDate.day),
+        tostring(decDate.hour),       tostring(decDate.minute),       tostring(decDate.second),
+        tostring(decDate.fracSecond), tostring(decDate.timezoneHour), tostring(decDate.timezoneMinute))
     end
   end
 end
@@ -320,81 +643,98 @@ end
 local function test_decomposeIsoDate_ValidIsoDateVariations_IsoDateParts()
   local validVariations = {
     [1] = {
-      isoDate    = "2024-01-02T12:40:51",
-      expDecDate = {y=2024, mo=1, d=2, h=12, min=40, s=51, tzH=0, tzMin=0},
+      isoDate    = "2024-01-02T12:40:51.0Z",
+      expDecDate = {y=2024, mo=1, d=2, h=12, min=40, s=51, f=0.0, tzH=0, tzMin=0},
     },
     [2] = {
-      isoDate    = "2024-01-05T15:43:54Z",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=0, tzMin=0},
+      isoDate    = "2024-01-05T15:43:54.000000Z",
+      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, f=0.0, tzH=0, tzMin=0},
     },
     [3] = {
-      isoDate    = "2024-01-05T15:43:54+03",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=3, tzMin=0},
+      isoDate    = "2024-01-05T15:43:54.1+03",
+      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, f=0.1, tzH=3, tzMin=0},
     },
     [4] = {
-      isoDate    = "2024-01-05T15:43:54-03",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=-3, tzMin=0},
+      isoDate    = "2024-01-05T15:43:54.11+03",
+      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, f=0.11, tzH=3, tzMin=0},
     },
     [5] = {
-      isoDate    = "2024-01-05T15:43:54+03:00",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=3, tzMin=0},
+      isoDate    = "2024-01-05T15:43:54.2-03",
+      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, f=0.2, tzH=-3, tzMin=0},
     },
     [6] = {
-      isoDate    = "2024-01-05T15:43:54-03:00",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=-3, tzMin=0},
+      isoDate    = "2024-01-05T15:43:54.222222-03",
+      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, f=0.222222, tzH=-3, tzMin=0},
     },
     [7] = {
-      isoDate    = "2024-01-05T15:43:54+04:30",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=4, tzMin=30},
+      isoDate    = "2025-10-26T07:27:04.3+03:00",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.3, tzH=3, tzMin=0},
     },
     [8] = {
-      isoDate    = "2024-01-05T15:43:54-04:30",
-      expDecDate = {y=2024, mo=1, d=5, h=15, min=43, s=54, tzH=-4, tzMin=30},
+      isoDate    = "2025-10-26T07:27:04.303+03:00",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.303, tzH=3, tzMin=0},
+    },
+    [9] = {
+      isoDate    = "2025-10-26T07:27:04.3000-03:00",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.3, tzH=-3, tzMin=0},
+    },
+    [10] = {
+      isoDate    = "2025-10-26T07:27:04.4000+04:30",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.4, tzH=4, tzMin=30},
+    },
+    [11] = {
+      isoDate    = "2025-10-26T07:27:04.40005-04:30",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.40005, tzH=-4, tzMin=-30},
+    },
+    [12] = {
+      isoDate    = "2025-10-26T07:27:04.456789-04:30",
+      expDecDate = {y=2025, mo=10, d=26, h=7, min=27, s=4, f=0.456789, tzH=-4, tzMin=-30},
     },
   }
 
   for i, v in ipairs(validVariations) do
     local ok, decDate = pcall(decomposeIsoDate, v.isoDate) -- the decomposed date
     if not ok then -- `decDate` is `pcall`s error message here
-      local decDateStr = tostring(decDate)
-      local errMsg = decDateStr:match(":%d*: (.*)$") or decDateStr
-      Log.errorEx(
-        "Test %d failed. Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s <> Got error: %s",
+      local errMsg = getErrorReason(tostring(decDate))
+      Log.log(logLevel.Error, true,
+        "Test %d failed. Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s %s <> Got error: %s",
         i,
-        tostring(v.expDecDate.y),   tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
-        tostring(v.expDecDate.h),   tostring(v.expDecDate.min), tostring(v.expDecDate.s),
-        tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin),
+        tostring(v.expDecDate.y), tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
+        tostring(v.expDecDate.h), tostring(v.expDecDate.min), tostring(v.expDecDate.s),
+        tostring(v.expDecDate.f), tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin),
         tostring(errMsg))
     elseif not decDate then
-      Log.errorEx(
-        "Test %d failed. Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s <> Got: nil",
+      Log.log(logLevel.Error, true,
+        "Test %d failed. Expected yMd Hmsf tzHm: %s %s %s %s %s %s %s %s %s <> Got: nil",
         i,
-        tostring(v.expDecDate.y),   tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
-        tostring(v.expDecDate.h),   tostring(v.expDecDate.min), tostring(v.expDecDate.s),
-        tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin))
+        tostring(v.expDecDate.y), tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
+        tostring(v.expDecDate.h), tostring(v.expDecDate.min), tostring(v.expDecDate.s),
+        tostring(v.expDecDate.f), tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin))
     elseif (not decDate.year           or decDate.year           ~= v.expDecDate.y)   or
            (not decDate.month          or decDate.month          ~= v.expDecDate.mo)  or
            (not decDate.day            or decDate.day            ~= v.expDecDate.d)   or
            (not decDate.hour           or decDate.hour           ~= v.expDecDate.h)   or
            (not decDate.minute         or decDate.minute         ~= v.expDecDate.min) or
            (not decDate.second         or decDate.second         ~= v.expDecDate.s)   or
+           (not decDate.fracSecond     or decDate.fracSecond     ~= v.expDecDate.f)   or
            (not decDate.timezoneHour   or decDate.timezoneHour   ~= v.expDecDate.tzH) or
            (not decDate.timezoneMinute or decDate.timezoneMinute ~= v.expDecDate.tzMin) then
-      Log.errorEx(
+      Log.log(logLevel.Error, true,
         "Test %d failed. " ..
-        "Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s <> Got: %s %s %s %s %s %s %s %s",
+        "Expected yMd Hms tzHm: %s %s %s %s %s %s %s %s %s <> Got: %s %s %s %s %s %s %s %s %s",
         i,
-        tostring(v.expDecDate.y),   tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
-        tostring(v.expDecDate.h),   tostring(v.expDecDate.min), tostring(v.expDecDate.s),
-        tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin),
-        tostring(decDate.year),         tostring(decDate.month),        tostring(decDate.day),
-        tostring(decDate.hour),         tostring(decDate.minute),       tostring(decDate.second),
-        tostring(decDate.timezoneHour), tostring(decDate.timezoneMinute))
+        tostring(v.expDecDate.y), tostring(v.expDecDate.mo),  tostring(v.expDecDate.d),
+        tostring(v.expDecDate.h), tostring(v.expDecDate.min), tostring(v.expDecDate.s),
+        tostring(v.expDecDate.f), tostring(v.expDecDate.tzH), tostring(v.expDecDate.tzMin),
+        tostring(decDate.year),       tostring(decDate.month),        tostring(decDate.day),
+        tostring(decDate.hour),       tostring(decDate.minute),       tostring(decDate.second),
+        tostring(decDate.fracSecond), tostring(decDate.timezoneHour), tostring(decDate.timezoneMinute))
     end
   end
 end
 
 local function test_HelperFunctions()
+  test_dateISO()
   test_decomposeIsoDate_InvalidIsoDateVariations_Errors()
   test_decomposeIsoDate_ValidIsoDateVariations_IsoDateParts()
 end
@@ -444,7 +784,7 @@ end
 ---@param level string? #The minimum log level for logging a line/message; defaults to `logLevel.Info` if `nil`
 ---@param logType string? #The logging type/mode; defaults to `LogType.ONLINE` if `nil`
 ---@param logSize number? #The max. log file size in kilobytes before rollover; defaults to 300 if `nil`
----@param url string? #The Papertrail URL; defaults to `URL_PAPERTRAIL` if `nil`
+---@param url string? #The URL where to send logs; defaults to `LOG_URL` if `nil`
 ---@param scriptName string? #The name of the script which uses this logger; defaults to " " if `nil`
 ---@param scriptVersion string? #The version of the script which uses this logger; defaults to "0" if `nil`
 ---@param scriptUpdate string? #The last update date of the script which uses this logger; defaults to " " if `nil`
@@ -499,7 +839,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     levelNumber   = mapLogLevelNameToNumber(level or logLevel.Info),
     logType       = logType or LogType.ONLINE,
     logSize       = logSize or 300,
-    url           = url or URL_PAPERTRAIL,
+    url           = url or LOG_URL,
     scriptName    = scriptName or " ",
     scriptVersion = scriptVersion or "0",
     scriptUpdate  = scriptUpdate or " ",
@@ -518,7 +858,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   --- Logs information about the script.
   ---@param settings string? Additional script settings to be logged if non-`nil`
   function self.scriptInfo(settings)
-    logTab.message      = string.format(
+    logTab.message      = fmt(
       "====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
       logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
       vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
@@ -542,7 +882,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.TRACE then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       local now = vpos.datetime.DateTime():getUnixTime() or ""
       logTab.message      = now .. "@ " .. msg
       logTab.messageLevel = logLevel.Trace
@@ -559,7 +899,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.DEBUG then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Debug
       logTab.priority     = Priority.USER_DEBUG
@@ -574,7 +914,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.INFO then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Info
       logTab.priority     = Priority.USER_INFO
@@ -590,7 +930,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.WARN then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Warn
       logTab.priority     = Priority.USER_WARN
@@ -605,7 +945,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.ERROR then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Error
       logTab.priority     = Priority.USER_ERROR
@@ -624,8 +964,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     local messageLevelNumber = mapLogLevelNameToNumber(messageLevel)
     if messageLevelNumber > LogLevelNumber.OFF and logTab.levelNumber >= messageLevelNumber then
       local info = debug.getinfo(2, "nl")
-      local msg  = (messageFormat and string.format(messageFormat, ...)) or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      local msg  = (messageFormat and fmt(messageFormat, ...)) or ""
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       if messageLevelNumber == LogLevelNumber.TRACE then
         local now = vpos.datetime.DateTime():getUnixTime() or ""
         msg = now .. "@ " .. msg
@@ -654,7 +994,7 @@ local function test_AllLoggingVariations()
   local msg100 = "123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 "
   local msgGt1000 = "" -- length is 10 * (100+4) = 1040 greater than 1000
   for i = 0, 9 do
-    msgGt1000 = string.format("%s[%d] %s", msgGt1000, i, msg100)
+    msgGt1000 = fmt("%s[%d] %s", msgGt1000, i, msg100)
   end
   local msgLen = msgGt1000:len()
   assert(msgLen > LOG_TRUNCATE_SIZE)
@@ -667,8 +1007,8 @@ local function test_AllLoggingVariations()
   Log.log(logLevel.Trace, false, "Indirect normal test with full=false: " .. msgGt1000)
   Log.log(logLevel.Trace, true,  "Indirect normal test with full=true:  " .. msgGt1000)
   Log.log(logLevel.Trace, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
-  Log.trace(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
-  Log.trace(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.trace(                 fmt("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.trace(                 fmt("Direct format test with full=true:    %s", msgGt1000), true)
   Log.log(logLevel.Trace, false, "Indirect format test with full=false: %s", msgGt1000)
   Log.log(logLevel.Trace, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
@@ -680,8 +1020,8 @@ local function test_AllLoggingVariations()
   Log.log(logLevel.Debug, false, "Indirect normal test with full=false: " .. msgGt1000)
   Log.log(logLevel.Debug, true,  "Indirect normal test with full=true:  " .. msgGt1000)
   Log.log(logLevel.Debug, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
-  Log.debug(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
-  Log.debug(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.debug(                 fmt("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.debug(                 fmt("Direct format test with full=true:    %s", msgGt1000), true)
   Log.log(logLevel.Debug, false, "Indirect format test with full=false: %s", msgGt1000)
   Log.log(logLevel.Debug, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
@@ -693,8 +1033,8 @@ local function test_AllLoggingVariations()
   Log.log(logLevel.Info, false, "Indirect normal test with full=false: " .. msgGt1000)
   Log.log(logLevel.Info, true,  "Indirect normal test with full=true:  " .. msgGt1000)
   Log.log(logLevel.Info, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
-  Log.info(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
-  Log.info(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.info(                 fmt("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.info(                 fmt("Direct format test with full=true:    %s", msgGt1000), true)
   Log.log(logLevel.Info, false, "Indirect format test with full=false: %s", msgGt1000)
   Log.log(logLevel.Info, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
@@ -706,8 +1046,8 @@ local function test_AllLoggingVariations()
   Log.log(logLevel.Warn, false, "Indirect normal test with full=false: " .. msgGt1000)
   Log.log(logLevel.Warn, true,  "Indirect normal test with full=true:  " .. msgGt1000)
   Log.log(logLevel.Warn, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
-  Log.warn(       string.format("Direct format test with full=false:   %s", msgGt1000), false)
-  Log.warn(       string.format("Direct format test with full=true:    %s", msgGt1000), true)
+  Log.warn(                 fmt("Direct format test with full=false:   %s", msgGt1000), false)
+  Log.warn(                 fmt("Direct format test with full=true:    %s", msgGt1000), true)
   Log.log(logLevel.Warn, false, "Indirect format test with full=false: %s", msgGt1000)
   Log.log(logLevel.Warn, true,  "Indirect format test with full=true:  %s", msgGt1000)
 
@@ -716,7 +1056,7 @@ local function test_AllLoggingVariations()
   Log.log(logLevel.Error, false, "Indirect normal test with full=false: " .. msgGt1000)
   Log.log(logLevel.Error, true,  "Indirect normal test with full=true:  " .. msgGt1000)
   Log.log(logLevel.Error, 0,     "Indirect normal test with full=0:     " .. msgGt1000)
-  Log.error(       string.format("Direct format test:                   %s", msgGt1000))
+  Log.error(                 fmt("Direct format test:                   %s", msgGt1000))
   Log.log(logLevel.Error, false, "Indirect format test with full=false: %s", msgGt1000)
   Log.log(logLevel.Error, true,  "Indirect format test with full=true:  %s", msgGt1000)
 end
@@ -794,26 +1134,24 @@ local function indirectTestWithPercentageChar()
 end
 local function test_LogMessageWithPercentageCharButWithoutVararg()
   local ok, err
-  local errMsg = "bad argument #2 to 'format' (no value)"
+  local errMsg = "bad argument #2 to 'fmt' (no value)"
 
   ok, err = pcall(Log.info,                      "Direct test with percentage char %c without vararg")
   if not ok then
-    Log.error(string.format("Expected: true nil <> Got: %s '%s'", tostring(ok), tostring(err)))
+    Log.error(fmt("Expected: true nil <> Got: %s '%s'", tostring(ok), tostring(err)))
   end
 
   ok, err = pcall(Log.log, logLevel.Info, false, "Indirect test1 with percentage char %c without vararg")
   if ok then
-    Log.error(string.format("Expected: false '%s' <> Got: %s %s",
-      errMsg, tostring(ok), tostring(err)))
+    Log.error(fmt("Expected: false '%s' <> Got: %s %s", errMsg, tostring(ok), tostring(err)))
   elseif type(err) ~= "string" or err:match(":%d+: (.*)$") ~= errMsg then
-    Log.warn(string.format("Expected error: %s <> Got: %s", errMsg, tostring(err)))
+    Log.warn(fmt("Expected error: %s <> Got: %s", errMsg, tostring(err)))
   end
   ok, err = pcall(indirectTestWithPercentageChar)
   if ok then
-    Log.error(string.format("Expected: false '%s' <> Got: %s %s",
-      errMsg, tostring(ok), tostring(err)))
+    Log.error(fmt("Expected: false '%s' <> Got: %s %s", errMsg, tostring(ok), tostring(err)))
   elseif type(err) ~= "string" or err:match(":%d+: (.*)$") ~= errMsg then
-    Log.warn(string.format("Expected error: %s <> Got: %s", errMsg, tostring(err)))
+    Log.warn(fmt("Expected error: %s <> Got: %s", errMsg, tostring(err)))
   end
 end
 
@@ -835,11 +1173,11 @@ local function readIni()
   local initTab = vpos.utils.readIniFromFile("VPOS:logger_ut.ini")
   if initTab and type(initTab) == "table" and
      initTab.LOGS and type(initTab.LOGS) == "table" then
-    LOG_LEVEL         = (initTab.LOGS.LOG_LEVEL         and string.lower(tostring(initTab.LOGS.LOG_LEVEL))) or LOG_LEVEL
-    LOG_TYPE          = (initTab.LOGS.LOG_TYPE          and string.lower(tostring(initTab.LOGS.LOG_TYPE)))  or LOG_TYPE
-    LOG_SIZE          = (initTab.LOGS.LOG_SIZE          and tonumber(initTab.LOGS.LOG_SIZE))                or LOG_SIZE
-    LOG_TRUNCATE_SIZE = (initTab.LOGS.LOG_TRUNCATE_SIZE and tonumber(initTab.LOGS.LOG_TRUNCATE_SIZE))       or LOG_TRUNCATE_SIZE
-    URL_PAPERTRAIL    = (initTab.LOGS.URL_PAPERTRAIL    and tostring(initTab.LOGS.URL_PAPERTRAIL))          or URL_PAPERTRAIL
+    LOG_LEVEL         = (initTab.LOGS.LOG_LEVEL         and tostring(initTab.LOGS.LOG_LEVEL):lower()) or LOG_LEVEL
+    LOG_TYPE          = (initTab.LOGS.LOG_TYPE          and tostring(initTab.LOGS.LOG_TYPE):lower())  or LOG_TYPE
+    LOG_SIZE          = (initTab.LOGS.LOG_SIZE          and tonumber(initTab.LOGS.LOG_SIZE))          or LOG_SIZE
+    LOG_TRUNCATE_SIZE = (initTab.LOGS.LOG_TRUNCATE_SIZE and tonumber(initTab.LOGS.LOG_TRUNCATE_SIZE)) or LOG_TRUNCATE_SIZE
+    LOG_URL           = (initTab.LOGS.LOG_URL           and tostring(initTab.LOGS.LOG_URL))           or LOG_URL
   end
 
   local scriptName    = vpos.script.currentScript():getName() or ""
@@ -863,8 +1201,7 @@ local function readIni()
       vpos.view.showWindow("Log settings wrong!\001Please set LOG_LEVEL = off or import the logger script!")
       vpos.script.exitScript()
     end
-    Log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, URL_PAPERTRAIL, scriptName,
-                 scriptVersion, scriptUpdate)
+    Log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, LOG_URL, scriptName, scriptVersion, scriptUpdate)
   end
 
   Log.scriptInfo(vpos.utils.encodeJSON(initTab or {}))

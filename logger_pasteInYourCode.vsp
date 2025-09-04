@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.11
+--!ScriptVersion: 2.16
 
 
 ------------------------------------------------------------------------------
@@ -31,23 +31,19 @@ local LogType = {
 }
 
 --- Minimum log level for logging a line/message.
-LOG_LEVEL = logLevel.Info
-
+LOG_LEVEL         = logLevel.Info
 --- Switch to online or offline/local logs.
-LOG_TYPE = LogType.ONLINE
-
+LOG_TYPE          = LogType.ONLINE
 --- Maximum log file size in kilobytes before rollover.
-LOG_SIZE = 300
-
+LOG_SIZE          = 300
 --- Maximum log line/message size in bytes after which is it truncated, if not doing
 --- a full send; truncation is the default behavior.
 LOG_TRUNCATE_SIZE = 1000
-
---- URL where logs are shown on Papertrail.
-URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
+--- The URL where the logs will be sent.
+LOG_URL           = "http://rza.ro:55514"
 
 --- The logger object.
-Log = {}
+local Log = {}
 
 -----------------------------------------------------------------------------
 ----------- END 1. GLOBAL DEFAULTS ------------------------------------------
@@ -58,11 +54,11 @@ Log = {}
 ----------- 2. LOGGER DEFINITION: add to functions --------------------------
 -----------------------------------------------------------------------------
 
---- Formats the given or current date according to the ISO 8601 (long) format
---- `yyyy-mm-ddThh:mm:ss[+-]hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
---- (only the first 19 out of the 25 characters).<br/>
---- Example of returned date: `2016-11-09T04:25:28` (the full date could be
---- `2016-11-09T04:25:28+01:00`).
+local fmt = string.format
+
+--- Formats the given or current date according to the ISO 8601 long format
+--- `yyyy-mm-ddThh:mm:ss.ffff[+-]hh:mm`.<br/>
+--- Example of returned date: `2016-11-09T04:25:28.0000+02:00`.
 ---@param date table? #A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
 ---@return string #The formatted given or current date
 local function dateISO(date)
@@ -70,8 +66,23 @@ local function dateISO(date)
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
-  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
-                       tostring(year), month, day, hour, minute, second)
+  -- determine the hour offset corresponding to DST (daylight saving time) Europe:
+  local offset = 0
+  -- January, February, November and December are out
+  if     month > 3 and month < 10 then -- April to September are in
+    offset = 1
+  elseif month == 3 then -- March
+    local marchSunday = math.ceil(31 - ((1.25 * year + 4) % 7))
+    -- in March we are DST if our day is the last Sunday (can be the 25th ~ 31st) or after
+    if day >= marchSunday then offset = 1 end
+  elseif month == 10 then -- October
+    local octoberSunday = math.ceil(31 - ((1.25 * year + 1) % 7))
+    -- in October we are DST if our day is before the last Sunday (can be the 25th ~ 31st)
+    if day < octoberSunday then offset = 1 end
+  end
+
+  return fmt("%s-%02d-%02dT%02d:%02d:%02d.0000+%02d:00",
+             tostring(year), month, day, hour, minute, second, 2 + offset)
 end
 
 --- Constants defining which file hosts are allowed.
@@ -109,7 +120,7 @@ end
 ---@param level string? #The minimum log level for logging a line/message; defaults to `logLevel.Info` if `nil`
 ---@param logType string? #The logging type/mode; defaults to `LogType.ONLINE` if `nil`
 ---@param logSize number? #The max. log file size in kilobytes before rollover; defaults to 300 if `nil`
----@param url string? #The Papertrail URL; defaults to `URL_PAPERTRAIL` if `nil`
+---@param url string? #The URL where to send logs; defaults to `LOG_URL` if `nil`
 ---@param scriptName string? #The name of the script which uses this logger; defaults to " " if `nil`
 ---@param scriptVersion string? #The version of the script which uses this logger; defaults to "0" if `nil`
 ---@param scriptUpdate string? #The last update date of the script which uses this logger; defaults to " " if `nil`
@@ -164,7 +175,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     levelNumber   = mapLogLevelNameToNumber(level or logLevel.Info),
     logType       = logType or LogType.ONLINE,
     logSize       = logSize or 300,
-    url           = url or URL_PAPERTRAIL,
+    url           = url or LOG_URL,
     scriptName    = scriptName or " ",
     scriptVersion = scriptVersion or "0",
     scriptUpdate  = scriptUpdate or " ",
@@ -183,7 +194,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
   --- Logs information about the script.
   ---@param settings string? #Additional script settings to be logged if non-`nil`
   function self.scriptInfo(settings)
-    logTab.message      = string.format(
+    logTab.message      = fmt(
       "====== START ======== script:%s __ version:%s __ update:%s __ pv:%s __ serialNo:%s __ ip:%s",
       logTab.scriptName, logTab.scriptVersion, logTab.scriptUpdate,
       vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion),
@@ -207,7 +218,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.TRACE then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       local now = vpos.datetime.DateTime():getUnixTime() or ""
       logTab.message      = now .. "@ " .. msg
       logTab.messageLevel = logLevel.Trace
@@ -224,7 +235,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.DEBUG then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Debug
       logTab.priority     = Priority.USER_DEBUG
@@ -239,7 +250,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.INFO then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Info
       logTab.priority     = Priority.USER_INFO
@@ -255,7 +266,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.WARN then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Warn
       logTab.priority     = Priority.USER_WARN
@@ -270,7 +281,7 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     if logTab.levelNumber >= LogLevelNumber.ERROR then
       local info = debug.getinfo(2, "nl")
       local msg  = message or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       logTab.message      = msg
       logTab.messageLevel = logLevel.Error
       logTab.priority     = Priority.USER_ERROR
@@ -289,8 +300,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     local messageLevelNumber = mapLogLevelNameToNumber(messageLevel)
     if messageLevelNumber > LogLevelNumber.OFF and logTab.levelNumber >= messageLevelNumber then
       local info = debug.getinfo(2, "nl")
-      local msg  = (messageFormat and string.format(messageFormat, ...)) or ""
-      if info then msg = string.format("<%d:%s> %s", info.currentline, info.name, msg) end
+      local msg  = (messageFormat and fmt(messageFormat, ...)) or ""
+      if info then msg = fmt("<%d:%s> %s", info.currentline, info.name, msg) end
       if messageLevelNumber == LogLevelNumber.TRACE then
         local now = vpos.datetime.DateTime():getUnixTime() or ""
         msg = now .. "@ " .. msg
@@ -300,6 +311,20 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
       logTab.priority     = mapLogLevelNumberToPriority(messageLevelNumber)
       logData(logTab, full)
     end
+  end
+
+  function self.sanitize_credentials(t)
+    local newT = {}
+    for k, v in pairs(t) do
+      if type(v) == "table" then
+        newT[k] = self.sanitize_credentials(v)
+      elseif tostring(k):lower():find("pass", 1, true) then
+        newT[k] = "****"
+      else
+        newT[k] = v
+      end
+    end
+    return newT
   end
 
   return self
@@ -319,11 +344,11 @@ function readIni()
   -----------------------------------------------------------------------------
 
   if initTab.LOGS then
-    LOG_LEVEL         = (initTab.LOGS.LOG_LEVEL         and string.lower(tostring(initTab.LOGS.LOG_LEVEL))) or LOG_LEVEL
-    LOG_TYPE          = (initTab.LOGS.LOG_TYPE          and string.lower(tostring(initTab.LOGS.LOG_TYPE)))  or LOG_TYPE
-    LOG_SIZE          = (initTab.LOGS.LOG_SIZE          and tonumber(initTab.LOGS.LOG_SIZE))                or LOG_SIZE
-    LOG_TRUNCATE_SIZE = (initTab.LOGS.LOG_TRUNCATE_SIZE and tonumber(initTab.LOGS.LOG_TRUNCATE_SIZE))       or LOG_TRUNCATE_SIZE
-    URL_PAPERTRAIL    = (initTab.LOGS.URL_PAPERTRAIL    and tostring(initTab.LOGS.URL_PAPERTRAIL))          or URL_PAPERTRAIL
+    LOG_LEVEL         = (initTab.LOGS.LOG_LEVEL         and tostring(initTab.LOGS.LOG_LEVEL):lower()) or LOG_LEVEL
+    LOG_TYPE          = (initTab.LOGS.LOG_TYPE          and tostring(initTab.LOGS.LOG_TYPE):lower())  or LOG_TYPE
+    LOG_SIZE          = (initTab.LOGS.LOG_SIZE          and tonumber(initTab.LOGS.LOG_SIZE))          or LOG_SIZE
+    LOG_TRUNCATE_SIZE = (initTab.LOGS.LOG_TRUNCATE_SIZE and tonumber(initTab.LOGS.LOG_TRUNCATE_SIZE)) or LOG_TRUNCATE_SIZE
+    LOG_URL           = (initTab.LOGS.LOG_URL           and tostring(initTab.LOGS.LOG_URL))           or LOG_URL
   end
 
   local scriptName    = vpos.script.currentScript():getName() or ""
@@ -347,8 +372,7 @@ function readIni()
       vpos.view.showWindow("Log settings wrong!\001Please set LOG_LEVEL = off or import the logger script!")
       vpos.script.exitScript()
     end
-    Log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, URL_PAPERTRAIL, scriptName,
-                 scriptVersion, scriptUpdate)
+    Log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, LOG_URL, scriptName, scriptVersion, scriptUpdate)
   end
 
   -- hide passwords from ini files so they are not logged
@@ -399,7 +423,7 @@ function testOff()
   initTab.LOGS.LOG_LEVEL = logLevel.Off
   initTab.LOGS.LOG_TYPE = LogType.OFFLINE
   initTab.LOGS.LOG_SIZE = 1000
-  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
+  initTab.LOGS.LOG_URL = LOG_URL
 
   readIni()
 
@@ -422,7 +446,7 @@ function testOnline()
   initTab.LOGS.LOG_LEVEL = logLevel.Trace
   initTab.LOGS.LOG_TYPE = LogType.ONLINE
   initTab.LOGS.LOG_SIZE = 1000
-  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
+  initTab.LOGS.LOG_URL = LOG_URL
 
   initTab.SECTION = {}
   initTab.SECTION.password = "123456"
@@ -450,7 +474,7 @@ function testOnline()
   Log.trace ("PRI 15   gesto request response: "..response)
 
   wait:close()
-  vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
+  vpos.view.showWindow("Test DONE!\001Check online logs!")
 end
 
 function testOnlineFastlogs()
@@ -460,7 +484,7 @@ function testOnlineFastlogs()
   initTab.LOGS.LOG_LEVEL = logLevel.Trace
   initTab.LOGS.LOG_TYPE = LogType.ONLINE
   initTab.LOGS.LOG_SIZE = 1000
-  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
+  initTab.LOGS.LOG_URL = LOG_URL
 
   initTab.SECTION = {}
   initTab.SECTION.password = "123456"
@@ -498,7 +522,7 @@ function testOnlineFastlogs()
   Log.trace ("gesto request response: "..response)
 
   wait:close()
-  vpos.view.showWindow("Test DONE!\001Check PaperTrail!")
+  vpos.view.showWindow("Test DONE!\001Check online logs!")
 end
 
 ------------------------------------------------------------------
@@ -512,7 +536,7 @@ function testOfflineSize()
   initTab.LOGS.LOG_LEVEL = logLevel.Trace
   initTab.LOGS.LOG_TYPE = LogType.OFFLINE
   initTab.LOGS.LOG_SIZE = 30
-  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
+  initTab.LOGS.LOG_URL = LOG_URL
 
   initTab.SECTION = {}
   initTab.SECTION.password = "123456"
@@ -556,7 +580,7 @@ function testOfflineFastlogs()
   initTab.LOGS.LOG_LEVEL = logLevel.Trace
   initTab.LOGS.LOG_TYPE = LogType.OFFLINE
   initTab.LOGS.LOG_SIZE = 30
-  initTab.LOGS.URL_PAPERTRAIL = URL_PAPERTRAIL
+  initTab.LOGS.LOG_URL = LOG_URL
 
   readIni()
 

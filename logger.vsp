@@ -1,9 +1,9 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.14
+--!ScriptVersion: 2.15
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
--- Date: 01/2025
--- Description: use metadata and queue for sending log messages to url (e.g. http://logs6.papertrailapp.com:17732 )
+-- Date: 08/2025
+-- Description: use metadata and queue for sending log messages to URL (online)
 
 
 --#region Script constants, enums and types **********
@@ -36,10 +36,10 @@ LogType = {
   ONLINE  = "online",
 }
 
---- Common maximum log file size for rollover of all scripts.
+--- Common maximum log file size in kilobytes for rollover of all scripts.
 COMMON_LOG_SIZE = 500
---- URL where logs are shown on papertrail.
-URL_PAPERTRAIL = "http://logs6.papertrailapp.com:17732"
+--- The URL where the logs will be sent.
+LOG_URL = "http://rza.ro:55514"
 
 --- Company name.
 COMP_NAME = ""
@@ -196,6 +196,8 @@ IniSettingsForUploadingLogs = nil
 
 --#region Helper functions **********
 
+local fmt = string.format
+
 --- Extracts and returns the error reason from the given error message of a
 --- raised error. On extraction failure, returns the given error message.
 ---@param errMsg string The error message of a raised error
@@ -223,11 +225,9 @@ local function isNonEmptyTable(t)
   return t ~= nil and type(t) == "table" and next(t) ~= nil
 end
 
---- Formats the given or current date according to the ISO 8601 (long) format
---- `yyyy-mm-ddThh:mm:ss[+-]hh:mm`. Currently, `yyyy-mm-ddThh:mm:ss` is returned
---- (only the first 19 out of the 25 characters).<br/>
---- Example of returned date: `2016-11-09T04:25:28` (the full date could be
---- `2016-11-09T04:25:28+01:00`).
+--- Formats the given or current date according to the ISO 8601 long format
+--- `yyyy-mm-ddThh:mm:ss.ffff[+-]hh:mm`.<br/>
+--- Example of returned date: `2016-11-09T04:25:28.0000+02:00`.
 ---@param date table? #A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
 ---@return string #The formatted given or current date
 local function dateISO(date)
@@ -235,78 +235,89 @@ local function dateISO(date)
   local day, month, year = date:getDate()
   local hour, minute, second = date:getTime()
 
-  return string.format("%s-%02d-%02dT%02d:%02d:%02d",
-                       tostring(year), month, day, hour, minute, second)
+  -- determine the hour offset corresponding to DST (daylight saving time) Europe:
+  local offset = 0
+  -- January, February, November and December are out
+  if     month > 3 and month < 10 then -- April to September are in
+    offset = 1
+  elseif month == 3 then -- March
+    local marchSunday = math.ceil(31 - ((1.25 * year + 4) % 7))
+    -- in March we are DST if our day is the last Sunday (can be the 25th ~ 31st) or after
+    if day >= marchSunday then offset = 1 end
+  elseif month == 10 then -- October
+    local octoberSunday = math.ceil(31 - ((1.25 * year + 1) % 7))
+    -- in October we are DST if our day is before the last Sunday (can be the 25th ~ 31st)
+    if day < octoberSunday then offset = 1 end
+  end
+
+  return fmt("%s-%02d-%02dT%02d:%02d:%02d.0000+%02d:00",
+             tostring(year), month, day, hour, minute, second, 2 + offset)
 end
 
---- Decomposes the given date in ISO 8601 (long) format `yyyy-mm-ddThh:mm:ss[+-]hh:mm`
---- (length 25).<br/>
---- NOTE: The minimum accepted ISO date is `yyyy-mm-ddThh:mm:ss` (length 19); also accepted
---- is `yyyy-mm-ddThh:mm:ssZ` (UTC length 20) and `yyyy-mm-ddThh:mm:ss[+-]hh` (length 22).
+--- Decomposes the given date in ISO 8601 long format `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh:mm`
+--- (length min. 27 max. 32).<br/>
+--- NOTE: Accepted formats are also `yyyy-mm-ddThh:mm:ss.(f+)Z` (UTC length min. 22 max. 27)
+--- and `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh` (length min. 24 max. 29). Notice that the fractional
+--- second must have between 1 and 6 digits.
 --- 
---- RAISES an error if the string is not an ISO 8601 date or a date part can't be converted.
+--- RAISES an error if the string is not an ISO 8601 date.
 ---@param isoDate string #The date in ISO 8601 format
 ---@return table #A table with all of the ISO date parts:
 ---   * `year`, `month`, `day` integer
----   * `hour`, `minute`, `second` integer
+---   * `hour`, `minute`, `second`, `fracSecond` integer
 ---   * `timezoneHour`, `timezoneMinute` integer 
 local function decomposeIsoDate(isoDate)
   assertAndOrLog(isoDate)
 
-  -- ISO 8601: y y y y - m m - d d T h h : m m : s s [+-] h h : m m
-  -- Position: 1       5     8     11    14    17    20       23  25
+  -- ISO 8601: y y y y - m m - d d T h h : m m : s s . f+ [+-Z] h h :    m m
+  -- Position: 1       5     8     11    14    17    20   21+F      24+F   26+F
+  -- where F = digit count of fractional second in range [1, 6]
 
-  local dateLen = string.len(isoDate)
-  if dateLen < 19 then
-    error("String is too short to be an ISO 8601 date or is incomplete (down to seconds required)")
-  elseif dateLen > 25 then
-    error("String is too long to be an ISO 8601 date")
-  elseif dateLen == 21 or dateLen == 23 or dateLen == 24 then
-    error("String length is invalid to be an ISO 8601 date")
+  local dateLen = isoDate:len()
+  if     dateLen < 22 then
+    error("String is too short for an ISO 8601 date or is incomplete (till fractional second required)")
+  elseif dateLen > 32 then
+    error("String is too long for an ISO 8601 date")
   end
-  if string.byte(isoDate, 5)  ~= IsoDate.DATE_SEP_BYTE                        or
-     string.byte(isoDate, 8)  ~= IsoDate.DATE_SEP_BYTE                        or
-     string.byte(isoDate, 11) ~= IsoDate.TIME_MARK_BYTE                       or
-     string.byte(isoDate, 14) ~= IsoDate.TIME_SEP_BYTE                        or
-     string.byte(isoDate, 17) ~= IsoDate.TIME_SEP_BYTE                        or
-     (dateLen == 20 and string.byte(isoDate, 20) ~= IsoDate.TZ_UTC_MARK_BYTE) or
-     ((dateLen == 22 or dateLen == 25) and
-      (string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
-       string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE))               or
-     (dateLen == 25 and
-      ((string.byte(isoDate, 20) ~= IsoDate.TZ_PLUS_MARK_BYTE and
-        string.byte(isoDate, 20) ~= IsoDate.TZ_MINUS_MARK_BYTE) or
-       string.byte(isoDate, 23) ~= IsoDate.TIME_SEP_BYTE)) then
+
+  local y, mo, d, h, min, s, f, tzmk, tzh, tzmin = isoDate:match(
+    "^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)%.(%d+)([+%-Z])(%d*)(:?%d*)$")
+
+  if tzh and tzh:len() == 0 then tzh = nil end
+  if tzmin then
+    local tzminLen = tzmin:len()
+    if     tzminLen == 0 then tzmin = nil
+    elseif tzminLen == 1 then error("String is not an ISO 8601 date")
+    else                      tzmin = tzmin:sub(2) end
+  end
+
+  if not y or not mo or not d or not h or not min or not s or not f or not tzmk or
+     (tzmk == "Z" and (tzh or tzmin)) or (tzmk ~= "Z" and not tzh) then
     error("String is not an ISO 8601 date")
   end
 
-  local year = tonumber(string.sub(isoDate, 1, 4))
-  if not year then error("Can't convert year to number") end
-  local month = tonumber(string.sub(isoDate, 6, 7))
-  if not month then error("Can't convert month to number") end
-  local day = tonumber(string.sub(isoDate, 9, 10))
-  if not day then error("Can't convert day to number") end
+  if           f:len()     >  6 then error("Fractional second contains too many digits") end
+  if tzh   and tzh:len()   ~= 2 then error("Time zone hour doesn't contain 2 digits") end
+  if tzmin and tzmin:len() ~= 2 then error("Time zone minute doesn't contain 2 digits") end
 
-  local hour = tonumber(string.sub(isoDate, 12, 13))
-  if not hour then error("Can't convert hour to number") end
-  local minute = tonumber(string.sub(isoDate, 15, 16))
-  if not minute then error("Can't convert minute to number") end
-  local second = tonumber(string.sub(isoDate, 18, 19))
-  if not second then error("Can't convert second to number") end
+  local year  = tonumber(y)
+  local month = tonumber(mo)
+  local day   = tonumber(d)
+  assertAndOrLog(year and month and day)
 
-  local timezoneHour = 0 ---@type number?
-  if dateLen == 22 or dateLen == 25 then
-    timezoneHour = tonumber(string.sub(isoDate, 20, 22))
-    if not timezoneHour then error("Can't convert time zone hour to number") end
-  end
-  local timezoneMinute = 0 ---@type number?
-  if dateLen == 25 then
-    timezoneMinute = tonumber(string.sub(isoDate, 24, 25))
-    if not timezoneMinute then error("Can't convert time zone minute to number") end
-  end
+  local hour        = tonumber(h)
+  local minute      = tonumber(min)
+  local second      = tonumber(s)
+  local fracSecond  = tonumber("0." .. f)
+  assertAndOrLog(hour and minute and second and fracSecond)
+
+  local timezoneHour    = tonumber((tzh   and tzmk .. tzh)   or 0)
+  local timezoneMinute  = tonumber((tzmin and tzmk .. tzmin) or 0)
+  assertAndOrLog(timezoneHour and timezoneMinute)
 
   return {
-    year = year, month = month, day = day, hour = hour, minute = minute, second = second,
+    year = year, month = month, day = day,
+    hour = hour, minute = minute, second = second, fracSecond = fracSecond,
     timezoneHour = timezoneHour, timezoneMinute = timezoneMinute,
   }
 end
@@ -320,9 +331,9 @@ end
 ---@see decomposeIsoDate 
 local function composeDmyHmsDate(decomposedDate)
   if not decomposedDate then return UNKNOWN_DATETIME end
-  return string.format("%02d.%02d.%04d_%02d:%02d:%02d",
-                       decomposedDate.day, decomposedDate.month, decomposedDate.year,
-                       decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
+  return fmt("%02d.%02d.%04d_%02d:%02d:%02d",
+             decomposedDate.day, decomposedDate.month, decomposedDate.year,
+             decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
 end
 
 --- Clones the object in a custom way.
@@ -432,9 +443,8 @@ end
 ---@param errMsg string|number? The error message or number; might be `nil` exceptionally
 local function logDev(devMsg, errMsg)
   ListPushLeft({
-    datetime     = dateISO(),
     scriptName   = LOGGER_SCRIPT_NAME,
-    url          = URL_PAPERTRAIL,
+    url          = LOG_URL,
     logType      = LogType.ONLINE,
     logSize      = COMMON_LOG_SIZE,
     priority     = Priority.USER_DEV,
@@ -450,12 +460,11 @@ if ENABLE_LOGGER_LOGS then
   ---@param ... any The vararg
   logDebug = function(msgFormat, ...)
     local info = debug.getinfo(2, "nl")
-    local msg = (msgFormat and string.format(msgFormat, ...)) or ""
-    if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
+    local msg = (msgFormat and fmt(msgFormat, ...)) or ""
+    if info then msg = fmt("%d:%s: %s", info.currentline, info.name, msg) end
     ListPushLeft({
-      datetime     = dateISO(),
       scriptName   = LOGGER_SCRIPT_NAME,
-      url          = URL_PAPERTRAIL,
+      url          = LOG_URL,
       logType      = LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = Priority.USER_DEBUG,
@@ -482,11 +491,10 @@ if ENABLE_LOGGER_LOGS then
     if not condition then
       local info = debug.getinfo(2, "nl")
       local msg = errMsg or "assertion failed"
-      if info then msg = string.format("%d:%s: %s", info.currentline, info.name, msg) end
+      if info then msg = fmt("%d:%s: %s", info.currentline, info.name, msg) end
       ListPushLeft({
-        datetime     = dateISO(),
         scriptName   = LOGGER_SCRIPT_NAME,
-        url          = URL_PAPERTRAIL,
+        url          = LOG_URL,
         logType      = LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_DEBUG,
@@ -834,18 +842,18 @@ local function checkThenPrependOrUpdateTouchmarkInReloggedMessageBody(msgBody, d
     _, _, i = msgBody:find("^D%?T%?|U[%d%-]()")
   end
   if not i then -- no touch-mark, so 0th relog try with no other flags 
-    msgBody = string.format("%s|U-R0 %s", composeDmyHmsDate(decomposedDate), msgBody)
+    msgBody = fmt("%s|U-R0 %s", composeDmyHmsDate(decomposedDate), msgBody)
     return true, msgBody
   end
 
   _, _, relogTryChar = msgBody:find("^R([%d%-])", i)
   if not relogTryChar then -- 0th relog try with upload try before and no other flags after
-    msgBody = string.format("%sR0 %s", msgBody:sub(1, i - 1), msgBody)
+    msgBody = fmt("%sR0 %s", msgBody:sub(1, i - 1), msgBody)
     return true, msgBody
   else -- 0th upload try with other flags, or we already tried to upload this line at least once
     local relogTry = (relogTryChar == "-" and 0) or (tonumber(relogTryChar, 10) + 1)
     if relogTry < MAX_LOG_LINE_RELOG_TRIES then
-      msgBody = string.format("%sR%d%s", msgBody:sub(1, i - 1), relogTry, msgBody:sub(i + 2))
+      msgBody = fmt("%sR%d%s", msgBody:sub(1, i - 1), relogTry, msgBody:sub(i + 2))
       return true, msgBody
     else
       return false, msgBody
@@ -906,7 +914,7 @@ local function decomposeLoggerOfflineMessageString(str)
   assertAndOrLog(str)
 
   local scriptName, sendingIsoDate, messageBody = str:match(
-    "^(%S+)%s+(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%S*)%s+(.-)\r?\n$")
+    "^(%S+)%s+(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%.%d+[+%-Z]%S*)%s+(.-)\r?\n$")
   if not scriptName then return nil end
 
   return {
@@ -923,7 +931,7 @@ local function decomposeNonLoggerOfflineMessageString(str)
   assertAndOrLog(str)
 
   local sendingIsoDate, messageLevel, qLastStr, qFirstStr, messageBody = str:match(
-    "^(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%S*) %[(%S+)%] >> ([+-]?%d+):([+-]?%d+) (.-)\r?\n$")
+    "^(%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d%.%d+[+%-Z]%S*) %[(%S+)%] >> ([+%-]?%d+):([+%-]?%d+) (.-)\r?\n$")
   if not sendingIsoDate then return nil end
 
   local qLast = tonumber(qLastStr, 10)
@@ -947,7 +955,7 @@ local function formatMessage(message, fallback)
   if message.logType == LogType.ONLINE and not fallback then
     local scriptVersion = vpos.tables.Table(806):getData(message.scriptName, 15)
     scriptVersion = tostring((scriptVersion ~= nil and scriptVersion ~= "" and scriptVersion) or 0)
-    local scriptData = string.format("%s_v:%s", message.scriptName, scriptVersion)
+    local scriptData = fmt("%s_v:%s", message.scriptName, scriptVersion)
     local trace = (message.messageLevel == logLevel.Trace and "[trace] ") or ""
 
     outStr = "<" .. message.priority .. ">1 " .. message.datetime .. " " .. COMP_NAME .. POS_NAME ..
@@ -979,13 +987,11 @@ local function handleUnnoticedConnectionDown(q, b, offlineCount, onlineCount)
   local qChunkMax = qLast - 1
   local qChunkMin = maxNumber(qChunkMax - (offlineCount + onlineCount) + 1, 1)
   if isCircularBufferEmpty(b) then
-    logDev(string.format("Possibly lost %d messages @ Q %d-%d:%d ",
-                         onlineCount, qChunkMin, qChunkMax, qFirst),
+    logDev(fmt("Possibly lost %d messages @ Q %d-%d:%d ", onlineCount, qChunkMin, qChunkMax, qFirst),
            "Connection went down unnoticed")
     return
   else
-    logDev(string.format("Requeuing %d messages from Q %d-%d:%d ",
-                         onlineCount, qChunkMin, qChunkMax, qFirst),
+    logDev(fmt("Requeuing %d messages from Q %d-%d:%d ", onlineCount, qChunkMin, qChunkMax, qFirst),
            "Connection went down unnoticed")
   end
 
@@ -997,7 +1003,7 @@ local function handleUnnoticedConnectionDown(q, b, offlineCount, onlineCount)
   else
     ListPushLeft({
       scriptName   = LOGGER_SCRIPT_NAME,
-      url          = URL_PAPERTRAIL,
+      url          = LOG_URL,
       logType      = LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = Priority.USER_ERROR,
@@ -1221,7 +1227,7 @@ local function sendFromQueue(q, b)
       else
         ListPushLeft({
           scriptName   = LOGGER_SCRIPT_NAME,
-          url          = URL_PAPERTRAIL,
+          url          = LOG_URL,
           logType      = LogType.ONLINE,
           logSize      = COMMON_LOG_SIZE,
           priority     = Priority.USER_ERROR,
@@ -1232,7 +1238,7 @@ local function sendFromQueue(q, b)
     else
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
-        url          = URL_PAPERTRAIL,
+        url          = LOG_URL,
         logType      = LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_ERROR,
@@ -1254,7 +1260,7 @@ if ENABLE_LOGGER_ANALYTICS then
       return
     end
 
-    local stats = string.format("size %d", queueSize)
+    local stats = fmt("size %d", queueSize)
     logDev("QUEUE", stats)
     PrevMarkedQueueSize = queueSize
   end
@@ -1273,12 +1279,12 @@ function handleQueues(q, b)
       eraseQueue(q) -- empty the log queue
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
-        url          = URL_PAPERTRAIL,
+        url          = LOG_URL,
         logType      = LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_WARN,
         messageLevel = logLevel.Warn,
-        message      = string.format("DUMPED & ERASED QUEUE: size %d, %s B", qSize, tostring(resp))
+        message      = fmt("DUMPED & ERASED QUEUE: size %d, %s B", qSize, tostring(resp))
       })
       local err
       ok, err = pcall(writeMD, q, b)
@@ -1292,7 +1298,7 @@ function handleQueues(q, b)
         if not ok then
           ListPushLeft({
             scriptName   = LOGGER_SCRIPT_NAME,
-            url          = URL_PAPERTRAIL,
+            url          = LOG_URL,
             logType      = LogType.ONLINE,
             logSize      = COMMON_LOG_SIZE,
             priority     = Priority.USER_ERROR,
@@ -1327,7 +1333,7 @@ local function determineMaxLogLinesForUploadRound()
 end
 
 local function isLoggerConnectedOnline()
-  renewLogSocket(URL_PAPERTRAIL)
+  renewLogSocket(LOG_URL)
   return LogSocket and LogSocket:isOpen() and LogSocket:isConnected()
 end
 
@@ -1530,12 +1536,12 @@ local function checkThenPrependOrUpdateTouchmarkInUploadedMessageBody(msgBody, d
     _, _, i, uploadTryChar = msgBody:find("^D%?T%?|U()([%d%-])")
   end
   if not uploadTryChar then -- no touch-mark, so 0th upload try with no other flags 
-    msgBody = string.format("%s|U0R- %s", composeDmyHmsDate(decomposedDate), msgBody)
+    msgBody = fmt("%s|U0R- %s", composeDmyHmsDate(decomposedDate), msgBody)
     return true, msgBody
   else -- 0th upload try with other flags, or we already tried to upload this line
     local uploadTry = (uploadTryChar == "-" and 0) or (tonumber(uploadTryChar, 10) + 1)
     if uploadTry < MAX_LOG_LINE_UPLOAD_TRIES then
-      msgBody = string.format("%s|U%d%s", msgBody:sub(1, i - 3), uploadTry, msgBody:sub(i + 1))
+      msgBody = fmt("%s|U%d%s", msgBody:sub(1, i - 3), uploadTry, msgBody:sub(i + 1))
       return true, msgBody
     else
       return false, msgBody
@@ -1567,7 +1573,7 @@ local function uploadLogFileLine(line)
     ListPushLeft({
       datetime     = UploadingLogFile.lastIsoDate,
       scriptName   = UploadingLogFile.lastScriptName,
-      url          = URL_PAPERTRAIL,
+      url          = LOG_URL,
       logType      = LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = mapMessageLevelToPriority(UploadingLogFile.lastMessageLevel),
@@ -1594,7 +1600,7 @@ local function uploadLogFileLine(line)
     ListPushLeft({
       datetime     = decomposedMsg.sendingIsoDate,
       scriptName   = UploadingLogFile.lastScriptName,
-      url          = URL_PAPERTRAIL,
+      url          = LOG_URL,
       logType      = LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = mapMessageLevelToPriority(decomposedMsg.messageLevel),
@@ -1676,10 +1682,10 @@ local function deleteFullyProcessedLogFileAndUploadingLogFile()
     if not ok then
       local round = UploadingLogFile.deletionRound + 1
       if round < MAX_UPLOADED_LOG_DELETION_ROUNDS then
-        logDev(string.format("Can't delete file %s (3 tries, round %d)", fileName, round), errNo)
+        logDev(fmt("Can't delete file %s (3 tries, round %d)", fileName, round), errNo)
         UploadingLogFile.deletionRound = round
       else
-        logDev(string.format("Can't delete file %s (3 tries, round %d), aborting", fileName, round), errNo)
+        logDev(fmt("Can't delete file %s (3 tries, round %d), aborting", fileName, round), errNo)
         UploadingLogFile = {}
       end
     else
