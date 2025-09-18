@@ -58,6 +58,8 @@ LOG_TIMER_INTERVAL = 320
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
 --- A good interval is [1; 10] minutes.<br/>
 UPLOAD_ROUND_INTERVAL = 150000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
+--- Interval in milliseconds, at which the messages "clock" is to be renewed.
+RENEW_MESSAGES_CLOCK_INTERVAL = 86400000 -- 24 * 3600 * 1000 ms = 24 hours
 
 --- Maximum logging list/queue size before dumping its content to the logger's log file.
 MAX_LOG_LIST_SIZE_BEFORE_DUMP = 165
@@ -171,6 +173,11 @@ LogSentBuffer = {}
 --- The structured information about the current offline log file, like the file
 --- handle and a file size function.
 LogFile = nil
+
+--- Reference Unix time used to determine a more precise date-time for the log messages.
+local MessagesRefUnixTime = 0
+--- Stop watch to determine a more precise date-time for the log messages.
+local MessagesStopWatch   = vpos.datetime.StopWatch()
 
 if ENABLE_LOGGER_ANALYTICS then
   --- The log list/queue size successfully marked (analyzed and logged) in a previous analysis.
@@ -886,6 +893,22 @@ end
 
 
 --#region Log message functions **********
+
+local function initMessagesClock()
+  --NOTE: statistically our reference Unix time is 500 ms earlier than the true value
+  -- (which should be halfway between this and the next second), but this difference
+  -- is compensated a bit by the fact that queuing log messages is asynchroneous
+  MessagesRefUnixTime = vpos.datetime.DateTime():getUnixTime()
+  MessagesStopWatch:reset()
+  MessagesStopWatch:start()
+end
+
+local function renewMessagesClockOnInterval()
+  local split = MessagesStopWatch:split()
+  if split >= RENEW_MESSAGES_CLOCK_INTERVAL then
+    initMessagesClock()
+  end
+end
 
 --- Decomposes/Unformats an offline message string/line into its parts, owning to the
 --- logger script.
@@ -1717,6 +1740,8 @@ function onLogTimer()
   end
   ok, err = pcall(handleQueues, LogList, LogSentBuffer)
   if not ok then logDev("Error while handling log queues", tostring(err)) end
+  ok, err = pcall(renewMessagesClockOnInterval)
+  if not ok then logDev("Error renewing messages clock on interval", tostring(err)) end
 end
 
 local function registerTimer()
@@ -1779,6 +1804,7 @@ end
 
 --#region MAIN **********
 
+initMessagesClock()
 initSettings()
 initLogQueues()
 initUploadingOfflineLogs()
