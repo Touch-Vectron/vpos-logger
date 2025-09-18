@@ -44,7 +44,7 @@ LOG_URL = "http://rza.ro:55514"
 --- Company name.
 COMP_NAME = ""
 --- POS name.
-POS_NAME = ""
+POS_NAME  = ""
 
 --- Switch to enable asserting logger code. SHOULD be used only for development!
 ENABLE_LOGGER_ASSERTS = false
@@ -1261,7 +1261,7 @@ end
 --- Manages the queues, namely the log list/queue and circular sent buffer.
 ---@param q table The queue
 ---@param b table The buffer
-function handleQueues(q, b)
+local function handleQueues(q, b)
   if not isQueueEmpty(q) then
     local qSize = queueSize(q)
     --showStatus("QSize " .. tostring(qSize))
@@ -1686,7 +1686,7 @@ local function deleteFullyProcessedLogFileAndUploadingLogFile()
   end
 end
 
-function uploadOfflineLogs()
+local function uploadOfflineLogs()
   if not isUploadRound() then return end
 
   local maxUploadLogLines = determineMaxLogLinesForUploadRound()
@@ -1719,6 +1719,10 @@ function onLogTimer()
   if not ok then logDev("Error while handling log queues", tostring(err)) end
 end
 
+local function registerTimer()
+  vpos.events.registerTimerFunction("onLogTimer", LOG_TIMER_INTERVAL)
+end
+
 --#endregion **********
 
 
@@ -1729,7 +1733,7 @@ local function initSettings()
   COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
   COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
   COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
-  POS_NAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+  POS_NAME  = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
 end
 
 --- Gets the queue saved in the script metadata if present, otherwise an empty and initialized
@@ -1737,7 +1741,7 @@ end
 ---@return table initQueue The initial queue <br/>
 ---@see readMD
 ---@see isQueueEmpty
-function getInitialQueue()
+local function getInitialQueue()
   local ok, initQueue = pcall(readMD)
   if not ok then -- `initQueue` is `pcall`s error message here
     logDev("Can't read metadata", tostring(initQueue))
@@ -1768,10 +1772,7 @@ local function initUploadingOfflineLogs()
   local curVposVersion   = vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion)
   local curVposVersionNo = convertVersionStringToNumber(curVposVersion)
   IS_UPLOADING_LOGS_SUPPORTED = curVposVersionNo >= convertVersionStringToNumber("6.3.7.0")
-end
 
-local function initTimers()
-  vpos.events.registerTimerFunction("onLogTimer", LOG_TIMER_INTERVAL)
   UploadStopWatch:start()
 end
 
@@ -1786,7 +1787,7 @@ initUploadingOfflineLogs()
 
 vpos.script.registerAsInterScript()
 
-initTimers()
+registerTimer()
 
 ---@entrypoint ClearMetadata
 vpos.events.registerEntryPointFunction(99, "clearMD")
