@@ -336,25 +336,6 @@ local function composeDmyHmsDate(decomposedDate)
              decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
 end
 
---- Clones the object in a custom way.
---- If the object is a table and for all its table fields recursively, it does a deep
---- clone. For all non-table fields recursively, or if the object is not a table, it
---- does a shallow clone.
---- There are two aspects this function does not handle:
---- * metatables
---- * recursive tables.
----@param obj any The object to be cloned
----@return any # The cloned object
-local function cloneTablesDeepOthersShallow(obj)
-  if type(obj) ~= "table" then return obj end
-
-  local res = {}
-  for k, v in pairs(obj) do
-    res[cloneTablesDeepOthersShallow(k)] = cloneTablesDeepOthersShallow(v)
-  end
-  return res
-end
-
 --- Determines if a string is nil or empty, or contains only whitespaces.
 ---@param str string? The string to check
 ---@return boolean # `true` if the string is nil or empty or only whitespaces, otherwise `false`
@@ -1151,15 +1132,26 @@ function dumpQueue(q)
   return count
 end
 
+--- Does a shallow clone of the given log message.
+---@param message table #The structured information about the log message
+---@return table #The cloned object
+local function cloneLogMessage(message)
+  local res = {}
+  for k, v in pairs(message) do
+    res[k] = v
+  end
+  return res
+end
+
 --- ENTRY POINT<br/>
 --- Enqueues a message(/element) to the tail of the log list/queue.
----@param message table The structured information about the log message
+---@param message table #The structured information about the log message
 function ListPushLeft(message)
   if not message then return end
 
   message.datetime = message.datetime or dateISO()
   message.priority = message.priority or Priority.MAIL_INFO
-  message = cloneTablesDeepOthersShallow(message)
+  message = cloneLogMessage(message)
 
   local first = (LogList.first or 0) - 1
   LogList[first] = message
