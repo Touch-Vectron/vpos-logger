@@ -1743,9 +1743,7 @@ end
 ---@see isQueueEmpty
 local function getInitialQueue()
   local ok, initQueue = pcall(readMD)
-  if not ok then -- `initQueue` is `pcall`s error message here
-    logDev("Can't read metadata", tostring(initQueue))
-  end
+  assert(ok, "Can't read metadata")
   if not ok or not isNonEmptyTable(initQueue) or isQueueEmpty(initQueue --[[@as table]]) then
     initQueue = {first = 0, last = -1}
   end
@@ -1754,18 +1752,18 @@ local function getInitialQueue()
 end
 
 local function initLogQueues()
+  LogSentBuffer = {size = 0, last = 0}
+
   local ok
   ok, LogList = pcall(getInitialQueue)
   assert(ok, LogList)
   if not ok then
     ok, LogList = pcall(getInitialQueue)
     if not ok then -- `LogList` is `pcall`s error message here
-      logDev("Can't get initial log queue", tostring(LogList))
       LogList = {first = 0, last = -1}
+      logDev("Can't get initial log queue", tostring(LogList))
     end
   end
-
-  LogSentBuffer = {size = 0, last = 0}
 end
 
 local function initUploadingOfflineLogs()
