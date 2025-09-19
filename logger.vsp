@@ -47,16 +47,16 @@ COMP_NAME = ""
 POS_NAME  = ""
 
 --- Switch to enable asserting logger code. SHOULD be used only for development!
-ENABLE_LOGGER_ASSERTS = false
+ENABLE_LOGGER_ASSERTS   = false
 --- Switch to enable debugging logs for the logger itself. SHOULD be used sparsely!
-ENABLE_LOGGER_LOGS = false
+ENABLE_LOGGER_LOGS      = false
 --- Switch to enable analytics for the logger itself. SHOULD be used sparsely!
 ENABLE_LOGGER_ANALYTICS = false
 
 --- Interval in milliseconds, at which the script timer triggers calls for logging the logs.
 LOG_TIMER_INTERVAL = 320
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
---- A good interval is [1; 10] minutes.<br/>
+--- A good interval is [1, 10] minutes.<br/>
 UPLOAD_ROUND_INTERVAL = 150000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
 --- Interval in milliseconds, at which the messages "clock" is to be renewed.
 RENEW_MESSAGES_CLOCK_INTERVAL = 86400000 -- 24 * 3600 * 1000 ms = 24 hours
@@ -103,11 +103,11 @@ if ENABLE_LOGGER_ANALYTICS then
 end
 
 --- Name of this script.
-LOGGER_SCRIPT_NAME = "logger.vsp"
+LOGGER_SCRIPT_NAME      = "logger.vsp"
 --- Log file name of this logger script.
-LOGGER_LOG_NAME = "logger.log"
+LOGGER_LOG_NAME         = "logger.log"
 --- Backup log file name of this logger script.
-LOGGER_BACKUP_LOG_NAME = "logger.1.log"
+LOGGER_BACKUP_LOG_NAME  = "logger.1.log"
 
 --- Flag indicating if uploading offline logs is supported on the current VPOS.
 IS_UPLOADING_LOGS_SUPPORTED = false
