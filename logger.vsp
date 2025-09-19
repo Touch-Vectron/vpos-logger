@@ -236,11 +236,13 @@ end
 --- `yyyy-mm-ddThh:mm:ss.ffff[+-]hh:mm`.<br/>
 --- Example of returned date: `2016-11-09T04:25:28.0000+02:00`.
 ---@param date table? #A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
+---@param millis integer? #Milliseconds denoting the fractional second; defaults to 0 if `nil`
 ---@return string #The formatted given or current date
-local function dateISO(date)
-  date = date or vpos.datetime.DateTime()
-  local day, month, year = date:getDate()
-  local hour, minute, second = date:getTime()
+local function dateISO(date, millis)
+  date    = date   or vpos.datetime.DateTime()
+  millis  = millis or 0
+  local day, month, year      = date:getDate()
+  local hour, minute, second  = date:getTime()
 
   -- determine the hour offset corresponding to DST (daylight saving time) Europe:
   local offset = 0
@@ -257,8 +259,8 @@ local function dateISO(date)
     if day < octoberSunday then offset = 1 end
   end
 
-  return fmt("%s-%02d-%02dT%02d:%02d:%02d.0000+%02d:00",
-             tostring(year), month, day, hour, minute, second, 2 + offset)
+  return fmt("%s-%02d-%02dT%02d:%02d:%02d.%03d0+%02d:00",
+             tostring(year), month, day, hour, minute, second, millis, 2 + offset)
 end
 
 --- Decomposes the given date in ISO 8601 long format `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh:mm`
@@ -1172,12 +1174,21 @@ end
 function ListPushLeft(message)
   if not message then return end
 
-  message.datetime = message.datetime or dateISO()
-  message.priority = message.priority or Priority.MAIL_INFO
-  message = cloneLogMessage(message)
+  local dateIso = message.datetime
+  if dateIso == nil then
+    local split   = MessagesStopWatch:split()
+    local seconds = split // 1000
+    local millis  = split - seconds * 1000
+    local date    = vpos.datetime.DateTime(MessagesRefUnixTime + seconds)
+    dateIso = dateISO(date, millis)
+  end
+
+  local clonedMsg = cloneLogMessage(message)
+  clonedMsg.datetime = dateIso
+  clonedMsg.priority = clonedMsg.priority or Priority.MAIL_INFO
 
   local first = (LogList.first or 0) - 1
-  LogList[first] = message
+  LogList[first] = clonedMsg
   LogList.first = first
 
   -- save the new queue to metadata
