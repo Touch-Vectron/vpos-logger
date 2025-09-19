@@ -897,11 +897,11 @@ end
 --#region Log message functions **********
 
 local function initMessagesClock()
+  MessagesStopWatch:reset()
   --NOTE: statistically our reference Unix time is 500 ms earlier than the true value
   -- (which should be halfway between this and the next second), but this difference
   -- is compensated a bit by the fact that queuing log messages is asynchroneous
   MessagesRefUnixTime = vpos.datetime.DateTime():getUnixTime()
-  MessagesStopWatch:reset()
   MessagesStopWatch:start()
 end
 
@@ -952,9 +952,9 @@ local function decomposeNonLoggerOfflineMessageString(str)
 end
 
 --- Formats the message by adding information about the script and POS terminal.
---- @param message table Message containing the needed information
---- @param fallback boolean `true` if called due to fallback
---- @return string outStr Log message to send
+--- @param message table #Message containing the needed information
+--- @param fallback boolean #`true` if called due to fallback
+--- @return string outStr #Log message to send
 local function formatMessage(message, fallback)
   local outStr = ""
 
@@ -1096,22 +1096,22 @@ end
 --#region Log queue functions **********
 
 --- Gets the queue size.
----@param q table The queue
----@return integer # The queue size
+---@param q table #The queue
+---@return integer #The queue size
 function queueSize(q)
   return math.abs(q.first) - math.abs(q.last) + 1
 end
 
 --- Checks if the queue is empty.
----@param q table The queue
----@return boolean # `true` if the queue is empty, otherwise `false`
+---@param q table #The queue
+---@return boolean #`true` if the queue is empty, otherwise `false`
 function isQueueEmpty(q)
   if not q.first or not q.last then return true end
   return q.first > q.last
 end
 
 --- Erases all elements from the queue.
----@param q table The queue
+---@param q table #The queue
 function eraseQueue(q)
   for i in pairs(q) do
     q[i] = nil
@@ -1123,8 +1123,8 @@ end
 --- Dumps the queue to "logger.log" file.
 ---
 --- RAISES an error if the log file can't be opened!
----@param q table The queue
----@return number count The count of written bytes  
+---@param q table #The queue
+---@return integer count #The count of written bytes  
 function dumpQueue(q)
   local f = getLogFile(LOGGER_SCRIPT_NAME, COMMON_LOG_SIZE)
   local count = 0
@@ -1199,8 +1199,8 @@ end
 --- This is similar to the push operation, but is stripped and thus faster, meaning that it
 --- does NOT do any checks, nor preprocesses or clones the message, nor saves the queue to
 --- the metadata.
----@param q table The queue
----@param message table The structured information about the log message
+---@param q table #The queue
+---@param message table #The structured information about the log message
 function ListRepushLeft(q, message)
   assert(message)
 
@@ -1210,15 +1210,15 @@ function ListRepushLeft(q, message)
 end
 
 --- Gets/Peeks the element from the head of the list/queue.
----@param q table The queue
----@return table # The head element
+---@param q table #The queue
+---@return table #The head element
 function ListGetRight(q)
   local last = q.last
   return q[last]
 end
 
 --- Dequeues the element from the head of the list/queue.
----@param q table The queue
+---@param q table #The queue
 function ListPopRight(q)
   local last = q.last
   q.last = last - 1
@@ -1228,14 +1228,14 @@ end
 --- Sends online or writes offline and pops the head element(/message) of the list/queue,
 --- pushes this element to the circular buffer if it was sent online, and updates the
 --- script metadata.
----@param q table The queue
----@param b table The buffer
+---@param q table #The queue
+---@param b table #The buffer
 local function sendFromQueue(q, b)
   local ok, message = pcall(ListGetRight, q)
   assertAndOrLog(ok, message)
-  message.qLast  = q.last
-  message.qFirst = q.first
   if ok then
+    message.qLast  = q.last
+    message.qFirst = q.first
     local sentOnline
     ok, sentOnline = pcall(sendMessage, message)
     assert(ok, sentOnline)
@@ -1293,15 +1293,15 @@ if ENABLE_LOGGER_ANALYTICS then
 end
 
 --- Manages the queues, namely the log list/queue and circular sent buffer.
----@param q table The queue
----@param b table The buffer
+---@param q table #The queue
+---@param b table #The buffer
 local function handleQueues(q, b)
   if not isQueueEmpty(q) then
     local qSize = queueSize(q)
     --showStatus("QSize " .. tostring(qSize))
     if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
-      local ok, resp = pcall(dumpQueue, q)
-      assertAndOrLog(ok, resp)
+      local ok, byteCount = pcall(dumpQueue, q)
+      assertAndOrLog(ok, byteCount)
       eraseQueue(q) -- empty the log queue
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
@@ -1310,7 +1310,7 @@ local function handleQueues(q, b)
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_WARN,
         messageLevel = logLevel.Warn,
-        message      = fmt("DUMPED & ERASED QUEUE: size %d, %s B", qSize, tostring(resp))
+        message      = fmt("DUMPED & ERASED QUEUE: size %d, %s B", qSize, tostring(byteCount))
       })
       local err
       ok, err = pcall(writeMD, q, b)
@@ -1774,7 +1774,7 @@ end
 
 --- Gets the queue saved in the script metadata if present, otherwise an empty and initialized
 --- queue, corresponding to the log list/queue.
----@return table initQueue The initial queue <br/>
+---@return table initQueue #The initial queue <br/>
 ---@see readMD
 ---@see isQueueEmpty
 local function getInitialQueue()
