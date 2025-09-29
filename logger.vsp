@@ -952,9 +952,9 @@ local function decomposeNonLoggerOfflineMessageString(str)
 end
 
 --- Formats the message by adding information about the script and POS terminal.
---- @param message table #Message containing the needed information
---- @param fallback boolean #`true` if called due to fallback
---- @return string outStr #Log message to send
+---@param message table #Message containing the needed information
+---@param fallback boolean #`true` if called due to fallback
+---@return string outStr #Log message to send
 local function formatMessage(message, fallback)
   local outStr = ""
 
@@ -1051,15 +1051,15 @@ end
 ---@param message table Message table containing the information to be logged
 ---@return boolean #`true` if the message was sent online, otherwise `false`
 local function sendMessage(message)
-  local ok, outStr = pcall(formatMessage, message)
-  assert(ok, outStr)
-  if not ok then
-    outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..
-             " logger.vsp - - - ________PCALL error:" .. tostring(outStr) .. "\n"
-  end
-
   local fallbackToFile = false
   if message.logType == LogType.ONLINE and message.url then
+    local ok, outStr = pcall(formatMessage, message)
+    assert(ok, outStr)
+    if not ok then
+      outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..
+              " logger.vsp - - - ________PCALL error:" .. tostring(outStr) .. "\n"
+    end
+
     renewLogSocket(message.url)
 
     local sent = LogSocket and LogSocket:write(outStr)
@@ -1068,14 +1068,15 @@ local function sendMessage(message)
     else
       fallbackToFile = true
       OfflineCounter = OfflineCounter + 1
-      ok, outStr = pcall(formatMessage, message, true)
-      assert(ok, outStr)
     end
   else
     fallbackToFile = true
   end
 
   if fallbackToFile then
+    local ok, outStr = pcall(formatMessage, message, true)
+    assert(ok, outStr)
+
     local maxLogSize = message.logSize or COMMON_LOG_SIZE
     if not LogFile or
        LogFile.size() >= maxLogSize or
@@ -1376,8 +1377,7 @@ local function readIniSettingsForUploadingOfflineLogs()
       local ok, initTab = pcall(vpos.utils.readIniFromFile, filePath)
       if not ok then -- `initTab` is `pcall`s error message here
         logDev("Can't parse " .. fileName .. " settings", initTab)
-      elseif initTab and type(initTab) == "table" and
-             initTab.LOGS and type(initTab.LOGS) == "table" then
+      elseif isTable(initTab) and isTable(initTab.LOGS) then
         local iniLogType = initTab.LOGS.LOG_TYPE
         if iniLogType then
           local logType = string.lower(tostring(iniLogType))
@@ -1803,11 +1803,13 @@ local function initLogQueues()
 end
 
 local function initUploadingOfflineLogs()
-  local curVposVersion   = vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion)
-  local curVposVersionNo = convertVersionStringToNumber(curVposVersion)
-  IS_UPLOADING_LOGS_SUPPORTED = curVposVersionNo >= convertVersionStringToNumber("6.3.7.0")
+  if LOG_URL:len() > 0 then
+    local curVposVersion   = vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion)
+    local curVposVersionNo = convertVersionStringToNumber(curVposVersion)
+    IS_UPLOADING_LOGS_SUPPORTED = curVposVersionNo >= convertVersionStringToNumber("6.3.7.0")
+  end
 
-  UploadStopWatch:start()
+  if IS_UPLOADING_LOGS_SUPPORTED then UploadStopWatch:start() end
 end
 
 --#endregion **********
