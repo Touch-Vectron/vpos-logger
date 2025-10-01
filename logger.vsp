@@ -39,7 +39,7 @@ LogType = {
 --- Common maximum log file size in kilobytes for rollover of all scripts.
 COMMON_LOG_SIZE = 500
 --- The URL where the logs will be sent.
-LOG_URL = "http://rza.ro:55514"
+LOG_URL         = "http://rza.ro:55514"
 
 --- Company name.
 COMP_NAME = ""
@@ -1057,7 +1057,7 @@ local function sendMessage(message)
     assert(ok, outStr)
     if not ok then
       outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..
-              " logger.vsp - - - ________PCALL error:" .. tostring(outStr) .. "\n"
+               " " .. LOGGER_SCRIPT_NAME .. " - - - ________PCALL error:" .. tostring(outStr) .. "\n"
     end
 
     renewLogSocket(message.url)
