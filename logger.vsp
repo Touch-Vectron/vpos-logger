@@ -1,9 +1,9 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.15
+--!ScriptVersion: 2.16
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
--- Date: 08/2025
--- Description: use metadata and queue for sending log messages to URL (online)
+-- Date: 09/2025
+-- Description: use metadata and queue for sending log messages to URL (online) or file (offline)
 
 
 --#region Script constants, enums and types **********
@@ -39,25 +39,27 @@ LogType = {
 --- Common maximum log file size in kilobytes for rollover of all scripts.
 COMMON_LOG_SIZE = 500
 --- The URL where the logs will be sent.
-LOG_URL = "http://rza.ro:55514"
+LOG_URL         = "http://rza.ro:55514"
 
 --- Company name.
 COMP_NAME = ""
 --- POS name.
-POS_NAME = ""
+POS_NAME  = ""
 
 --- Switch to enable asserting logger code. SHOULD be used only for development!
-ENABLE_LOGGER_ASSERTS = false
+ENABLE_LOGGER_ASSERTS   = false
 --- Switch to enable debugging logs for the logger itself. SHOULD be used sparsely!
-ENABLE_LOGGER_LOGS = false
+ENABLE_LOGGER_LOGS      = false
 --- Switch to enable analytics for the logger itself. SHOULD be used sparsely!
 ENABLE_LOGGER_ANALYTICS = false
 
 --- Interval in milliseconds, at which the script timer triggers calls for logging the logs.
 LOG_TIMER_INTERVAL = 320
 --- Interval in milliseconds, at which a new round of uploading offline logs is started.
---- A good interval is [1; 10] minutes.<br/>
+--- A good interval is [1, 10] minutes.<br/>
 UPLOAD_ROUND_INTERVAL = 150000 -- 2.5 * 60'000 ms = 2.5 minutes = 2m30s
+--- Interval in milliseconds, at which the messages "clock" is to be renewed.
+RENEW_MESSAGES_CLOCK_INTERVAL = 86400000 -- 24 * 3600 * 1000 ms = 24 hours
 
 --- Maximum logging list/queue size before dumping its content to the logger's log file.
 MAX_LOG_LIST_SIZE_BEFORE_DUMP = 165
@@ -101,11 +103,11 @@ if ENABLE_LOGGER_ANALYTICS then
 end
 
 --- Name of this script.
-LOGGER_SCRIPT_NAME = "logger.vsp"
+LOGGER_SCRIPT_NAME      = "logger.vsp"
 --- Log file name of this logger script.
-LOGGER_LOG_NAME = "logger.log"
+LOGGER_LOG_NAME         = "logger.log"
 --- Backup log file name of this logger script.
-LOGGER_BACKUP_LOG_NAME = "logger.1.log"
+LOGGER_BACKUP_LOG_NAME  = "logger.1.log"
 
 --- Flag indicating if uploading offline logs is supported on the current VPOS.
 IS_UPLOADING_LOGS_SUPPORTED = false
@@ -172,6 +174,11 @@ LogSentBuffer = {}
 --- handle and a file size function.
 LogFile = nil
 
+--- Reference Unix time used to determine a more precise date-time for the log messages.
+local MessagesRefUnixTime = 0
+--- Stop watch to determine a more precise date-time for the log messages.
+local MessagesStopWatch   = vpos.datetime.StopWatch()
+
 if ENABLE_LOGGER_ANALYTICS then
   --- The log list/queue size successfully marked (analyzed and logged) in a previous analysis.
   PrevMarkedQueueSize = 0
@@ -229,11 +236,13 @@ end
 --- `yyyy-mm-ddThh:mm:ss.ffff[+-]hh:mm`.<br/>
 --- Example of returned date: `2016-11-09T04:25:28.0000+02:00`.
 ---@param date table? #A `vpos.datetime.DateTime` object to be formatted; defaults to the current date if `nil`
+---@param millis integer? #Milliseconds denoting the fractional second; defaults to 0 if `nil`
 ---@return string #The formatted given or current date
-local function dateISO(date)
-  date = date or vpos.datetime.DateTime()
-  local day, month, year = date:getDate()
-  local hour, minute, second = date:getTime()
+local function dateISO(date, millis)
+  date    = date   or vpos.datetime.DateTime()
+  millis  = millis or 0
+  local day, month, year      = date:getDate()
+  local hour, minute, second  = date:getTime()
 
   -- determine the hour offset corresponding to DST (daylight saving time) Europe:
   local offset = 0
@@ -250,8 +259,8 @@ local function dateISO(date)
     if day < octoberSunday then offset = 1 end
   end
 
-  return fmt("%s-%02d-%02dT%02d:%02d:%02d.0000+%02d:00",
-             tostring(year), month, day, hour, minute, second, 2 + offset)
+  return fmt("%s-%02d-%02dT%02d:%02d:%02d.%03d0+%02d:00",
+             tostring(year), month, day, hour, minute, second, millis, 2 + offset)
 end
 
 --- Decomposes the given date in ISO 8601 long format `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh:mm`
@@ -334,25 +343,6 @@ local function composeDmyHmsDate(decomposedDate)
   return fmt("%02d.%02d.%04d_%02d:%02d:%02d",
              decomposedDate.day, decomposedDate.month, decomposedDate.year,
              decomposedDate.hour, decomposedDate.minute, decomposedDate.second)
-end
-
---- Clones the object in a custom way.
---- If the object is a table and for all its table fields recursively, it does a deep
---- clone. For all non-table fields recursively, or if the object is not a table, it
---- does a shallow clone.
---- There are two aspects this function does not handle:
---- * metatables
---- * recursive tables.
----@param obj any The object to be cloned
----@return any # The cloned object
-local function cloneTablesDeepOthersShallow(obj)
-  if type(obj) ~= "table" then return obj end
-
-  local res = {}
-  for k, v in pairs(obj) do
-    res[cloneTablesDeepOthersShallow(k)] = cloneTablesDeepOthersShallow(v)
-  end
-  return res
 end
 
 --- Determines if a string is nil or empty, or contains only whitespaces.
@@ -906,6 +896,22 @@ end
 
 --#region Log message functions **********
 
+local function initMessagesClock()
+  MessagesStopWatch:reset()
+  --NOTE: statistically our reference Unix time is 500 ms earlier than the true value
+  -- (which should be halfway between this and the next second), but this difference
+  -- is compensated a bit by the fact that queuing log messages is asynchroneous
+  MessagesRefUnixTime = vpos.datetime.DateTime():getUnixTime()
+  MessagesStopWatch:start()
+end
+
+local function renewMessagesClockOnInterval()
+  local split = MessagesStopWatch:split()
+  if split >= RENEW_MESSAGES_CLOCK_INTERVAL then
+    initMessagesClock()
+  end
+end
+
 --- Decomposes/Unformats an offline message string/line into its parts, owning to the
 --- logger script.
 ---@param str string The message string/line
@@ -946,9 +952,9 @@ local function decomposeNonLoggerOfflineMessageString(str)
 end
 
 --- Formats the message by adding information about the script and POS terminal.
---- @param message table Message containing the needed information
---- @param fallback boolean `true` if called due to fallback
---- @return string outStr Log message to send
+---@param message table #Message containing the needed information
+---@param fallback boolean #`true` if called due to fallback
+---@return string outStr #Log message to send
 local function formatMessage(message, fallback)
   local outStr = ""
 
@@ -1045,15 +1051,15 @@ end
 ---@param message table Message table containing the information to be logged
 ---@return boolean #`true` if the message was sent online, otherwise `false`
 local function sendMessage(message)
-  local ok, outStr = pcall(formatMessage, message)
-  assert(ok, outStr)
-  if not ok then
-    outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..
-             " logger.vsp - - - ________PCALL error:" .. tostring(outStr) .. "\n"
-  end
-
   local fallbackToFile = false
   if message.logType == LogType.ONLINE and message.url then
+    local ok, outStr = pcall(formatMessage, message)
+    assert(ok, outStr)
+    if not ok then
+      outStr = "<11>1 " .. dateISO() .. " " .. COMP_NAME .. POS_NAME ..
+               " " .. LOGGER_SCRIPT_NAME .. " - - - ________PCALL error:" .. tostring(outStr) .. "\n"
+    end
+
     renewLogSocket(message.url)
 
     local sent = LogSocket and LogSocket:write(outStr)
@@ -1062,14 +1068,15 @@ local function sendMessage(message)
     else
       fallbackToFile = true
       OfflineCounter = OfflineCounter + 1
-      ok, outStr = pcall(formatMessage, message, true)
-      assert(ok, outStr)
     end
   else
     fallbackToFile = true
   end
 
   if fallbackToFile then
+    local ok, outStr = pcall(formatMessage, message, true)
+    assert(ok, outStr)
+
     local maxLogSize = message.logSize or COMMON_LOG_SIZE
     if not LogFile or
        LogFile.size() >= maxLogSize or
@@ -1090,22 +1097,22 @@ end
 --#region Log queue functions **********
 
 --- Gets the queue size.
----@param q table The queue
----@return integer # The queue size
+---@param q table #The queue
+---@return integer #The queue size
 function queueSize(q)
   return math.abs(q.first) - math.abs(q.last) + 1
 end
 
 --- Checks if the queue is empty.
----@param q table The queue
----@return boolean # `true` if the queue is empty, otherwise `false`
+---@param q table #The queue
+---@return boolean #`true` if the queue is empty, otherwise `false`
 function isQueueEmpty(q)
   if not q.first or not q.last then return true end
   return q.first > q.last
 end
 
 --- Erases all elements from the queue.
----@param q table The queue
+---@param q table #The queue
 function eraseQueue(q)
   for i in pairs(q) do
     q[i] = nil
@@ -1117,8 +1124,8 @@ end
 --- Dumps the queue to "logger.log" file.
 ---
 --- RAISES an error if the log file can't be opened!
----@param q table The queue
----@return number count The count of written bytes  
+---@param q table #The queue
+---@return integer count #The count of written bytes  
 function dumpQueue(q)
   local f = getLogFile(LOGGER_SCRIPT_NAME, COMMON_LOG_SIZE)
   local count = 0
@@ -1151,18 +1158,38 @@ function dumpQueue(q)
   return count
 end
 
+--- Does a shallow clone of the given log message.
+---@param message table #The structured information about the log message
+---@return table #The cloned object
+local function cloneLogMessage(message)
+  local res = {}
+  for k, v in pairs(message) do
+    res[k] = v
+  end
+  return res
+end
+
 --- ENTRY POINT<br/>
 --- Enqueues a message(/element) to the tail of the log list/queue.
----@param message table The structured information about the log message
+---@param message table #The structured information about the log message
 function ListPushLeft(message)
   if not message then return end
 
-  message.datetime = message.datetime or dateISO()
-  message.priority = message.priority or Priority.MAIL_INFO
-  message = cloneTablesDeepOthersShallow(message)
+  local dateIso = message.datetime
+  if dateIso == nil then
+    local split   = MessagesStopWatch:split()
+    local seconds = split // 1000
+    local millis  = split - seconds * 1000
+    local date    = vpos.datetime.DateTime(MessagesRefUnixTime + seconds)
+    dateIso = dateISO(date, millis)
+  end
+
+  local clonedMsg = cloneLogMessage(message)
+  clonedMsg.datetime = dateIso
+  clonedMsg.priority = clonedMsg.priority or Priority.MAIL_INFO
 
   local first = (LogList.first or 0) - 1
-  LogList[first] = message
+  LogList[first] = clonedMsg
   LogList.first = first
 
   -- save the new queue to metadata
@@ -1173,8 +1200,8 @@ end
 --- This is similar to the push operation, but is stripped and thus faster, meaning that it
 --- does NOT do any checks, nor preprocesses or clones the message, nor saves the queue to
 --- the metadata.
----@param q table The queue
----@param message table The structured information about the log message
+---@param q table #The queue
+---@param message table #The structured information about the log message
 function ListRepushLeft(q, message)
   assert(message)
 
@@ -1184,15 +1211,15 @@ function ListRepushLeft(q, message)
 end
 
 --- Gets/Peeks the element from the head of the list/queue.
----@param q table The queue
----@return table # The head element
+---@param q table #The queue
+---@return table #The head element
 function ListGetRight(q)
   local last = q.last
   return q[last]
 end
 
 --- Dequeues the element from the head of the list/queue.
----@param q table The queue
+---@param q table #The queue
 function ListPopRight(q)
   local last = q.last
   q.last = last - 1
@@ -1202,14 +1229,14 @@ end
 --- Sends online or writes offline and pops the head element(/message) of the list/queue,
 --- pushes this element to the circular buffer if it was sent online, and updates the
 --- script metadata.
----@param q table The queue
----@param b table The buffer
+---@param q table #The queue
+---@param b table #The buffer
 local function sendFromQueue(q, b)
   local ok, message = pcall(ListGetRight, q)
   assertAndOrLog(ok, message)
-  message.qLast  = q.last
-  message.qFirst = q.first
   if ok then
+    message.qLast  = q.last
+    message.qFirst = q.first
     local sentOnline
     ok, sentOnline = pcall(sendMessage, message)
     assert(ok, sentOnline)
@@ -1267,15 +1294,15 @@ if ENABLE_LOGGER_ANALYTICS then
 end
 
 --- Manages the queues, namely the log list/queue and circular sent buffer.
----@param q table The queue
----@param b table The buffer
-function handleQueues(q, b)
+---@param q table #The queue
+---@param b table #The buffer
+local function handleQueues(q, b)
   if not isQueueEmpty(q) then
     local qSize = queueSize(q)
     --showStatus("QSize " .. tostring(qSize))
     if qSize > MAX_LOG_LIST_SIZE_BEFORE_DUMP then
-      local ok, resp = pcall(dumpQueue, q)
-      assertAndOrLog(ok, resp)
+      local ok, byteCount = pcall(dumpQueue, q)
+      assertAndOrLog(ok, byteCount)
       eraseQueue(q) -- empty the log queue
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
@@ -1284,7 +1311,7 @@ function handleQueues(q, b)
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_WARN,
         messageLevel = logLevel.Warn,
-        message      = fmt("DUMPED & ERASED QUEUE: size %d, %s B", qSize, tostring(resp))
+        message      = fmt("DUMPED & ERASED QUEUE: size %d, %s B", qSize, tostring(byteCount))
       })
       local err
       ok, err = pcall(writeMD, q, b)
@@ -1350,8 +1377,7 @@ local function readIniSettingsForUploadingOfflineLogs()
       local ok, initTab = pcall(vpos.utils.readIniFromFile, filePath)
       if not ok then -- `initTab` is `pcall`s error message here
         logDev("Can't parse " .. fileName .. " settings", initTab)
-      elseif initTab and type(initTab) == "table" and
-             initTab.LOGS and type(initTab.LOGS) == "table" then
+      elseif isTable(initTab) and isTable(initTab.LOGS) then
         local iniLogType = initTab.LOGS.LOG_TYPE
         if iniLogType then
           local logType = string.lower(tostring(iniLogType))
@@ -1694,7 +1720,7 @@ local function deleteFullyProcessedLogFileAndUploadingLogFile()
   end
 end
 
-function uploadOfflineLogs()
+local function uploadOfflineLogs()
   if not isUploadRound() then return end
 
   local maxUploadLogLines = determineMaxLogLinesForUploadRound()
@@ -1725,6 +1751,12 @@ function onLogTimer()
   end
   ok, err = pcall(handleQueues, LogList, LogSentBuffer)
   if not ok then logDev("Error while handling log queues", tostring(err)) end
+  ok, err = pcall(renewMessagesClockOnInterval)
+  if not ok then logDev("Error renewing messages clock on interval", tostring(err)) end
+end
+
+local function registerTimer()
+  vpos.events.registerTimerFunction("onLogTimer", LOG_TIMER_INTERVAL)
 end
 
 --#endregion **********
@@ -1737,19 +1769,17 @@ local function initSettings()
   COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
   COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
   COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
-  POS_NAME = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+  POS_NAME  = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
 end
 
 --- Gets the queue saved in the script metadata if present, otherwise an empty and initialized
 --- queue, corresponding to the log list/queue.
----@return table initQueue The initial queue <br/>
+---@return table initQueue #The initial queue <br/>
 ---@see readMD
 ---@see isQueueEmpty
-function getInitialQueue()
+local function getInitialQueue()
   local ok, initQueue = pcall(readMD)
-  if not ok then -- `initQueue` is `pcall`s error message here
-    logDev("Can't read metadata", tostring(initQueue))
-  end
+  assert(ok, "Can't read metadata")
   if not ok or not isNonEmptyTable(initQueue) or isQueueEmpty(initQueue --[[@as table]]) then
     initQueue = {first = 0, last = -1}
   end
@@ -1758,29 +1788,28 @@ function getInitialQueue()
 end
 
 local function initLogQueues()
+  LogSentBuffer = {size = 0, last = 0}
+
   local ok
   ok, LogList = pcall(getInitialQueue)
   assert(ok, LogList)
   if not ok then
     ok, LogList = pcall(getInitialQueue)
     if not ok then -- `LogList` is `pcall`s error message here
-      logDev("Can't get initial log queue", tostring(LogList))
       LogList = {first = 0, last = -1}
+      logDev("Can't get initial log queue", tostring(LogList))
     end
   end
-
-  LogSentBuffer = {size = 0, last = 0}
 end
 
 local function initUploadingOfflineLogs()
-  local curVposVersion   = vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion)
-  local curVposVersionNo = convertVersionStringToNumber(curVposVersion)
-  IS_UPLOADING_LOGS_SUPPORTED = curVposVersionNo >= convertVersionStringToNumber("6.3.7.0")
-end
+  if LOG_URL:len() > 0 then
+    local curVposVersion   = vpos.getSystemInfo(vpos.SystemInfo.SoftwareVersion)
+    local curVposVersionNo = convertVersionStringToNumber(curVposVersion)
+    IS_UPLOADING_LOGS_SUPPORTED = curVposVersionNo >= convertVersionStringToNumber("6.3.7.0")
+  end
 
-local function initTimers()
-  vpos.events.registerTimerFunction("onLogTimer", LOG_TIMER_INTERVAL)
-  UploadStopWatch:start()
+  if IS_UPLOADING_LOGS_SUPPORTED then UploadStopWatch:start() end
 end
 
 --#endregion **********
@@ -1788,13 +1817,14 @@ end
 
 --#region MAIN **********
 
+initMessagesClock()
 initSettings()
 initLogQueues()
 initUploadingOfflineLogs()
 
 vpos.script.registerAsInterScript()
 
-initTimers()
+registerTimer()
 
 ---@entrypoint ClearMetadata
 vpos.events.registerEntryPointFunction(99, "clearMD")
