@@ -569,9 +569,9 @@ end
 local AllowedFileHosts = {["VPOS"] = true, ["FILE"] = true, ["MEDIAFILE"] = false}
 
 --- Checks for the existance of the file.
----@param fn string The file name/path to be checked
----@param host string? The file host; defaults to "VPOS" if `nil` and a host can't be extracted from `fn`
----@return boolean `true` if the file exists, otherwise `false` <br/>
+---@param fn string #The file name/path to be checked
+---@param host string? #The file host; defaults to "VPOS" if `nil` and a host can't be extracted from `fn`
+---@return boolean #`true` if the file exists, otherwise `false` <br/>
 ---@see AllowedFileHosts
 local function file_exists(fn, host)
   if not fn then return false end
@@ -597,17 +597,17 @@ local function file_exists(fn, host)
 end
 
 --- Moves/Renames a file.
----@param fn1 string The source file name/path
----@param fn2 string The destination file name/path
----@param overwrite boolean Flag to overwrite an existing destination file
----@return boolean # `true` if moving/renaming succeeded, otherwise `false`
----@return string|integer # 0 on success, otherwise an error message or number
+---@param fn1 string #The source file name/path
+---@param fn2 string #The destination file name/path
+---@param overwrite boolean #Flag to overwrite an existing destination file
+---@return boolean #`true` if moving/renaming succeeded, otherwise `false`
+---@return string|integer #0 on success, otherwise an error message or number
 local function file_rename(fn1, fn2, overwrite)
   if not file_exists(fn1) then
-    return false, string.format("Source file %s is missing!", fn1 or "")
+    return false, fmt("Source file %s is missing!", fn1 or "")
   end
   if file_exists(fn2) and not overwrite then
-    return false, string.format("Destination file %s already exists!", fn2 or "")
+    return false, fmt("Destination file %s already exists!", fn2 or "")
   end
 
   local ok, errNo = vpos.renameFile(fn1, fn2) ---@type boolean, integer
@@ -620,8 +620,8 @@ local function file_rename(fn1, fn2, overwrite)
 end
 
 --- Gets the file size as a script, by interogating VPOS.
----@param filePath string? The file path
----@return number # The file size on success, otherwise `-1`
+---@param filePath string? #The file path
+---@return number #The file size on success, otherwise `-1`
 local function get_file_size_as_script(filePath)
   if not filePath then return -1 end
 
