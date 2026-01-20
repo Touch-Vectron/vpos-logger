@@ -36,8 +36,8 @@ LOG_LEVEL         = logLevel.Info
 LOG_TYPE          = LogType.ONLINE
 --- Maximum log file size in kilobytes before rollover.
 LOG_SIZE          = 300
---- Maximum log line/message size in bytes after which is it truncated, if not doing
---- a full send; truncation is the default behavior.
+--- Maximum log line/message size in bytes after which it is truncated, if not doing
+--- a full send/save; truncation is the default behavior.
 LOG_TRUNCATE_SIZE = 1000
 --- The URL where the logs will be sent.
 LOG_URL           = "http://rza.ro:55514"
