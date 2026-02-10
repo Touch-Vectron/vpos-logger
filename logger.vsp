@@ -196,7 +196,7 @@ UploadingLogFile = {}
 --- Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
 --- Logs related settings from all scanned ".ini" files, needed for uploading offline log files.
-IniSettingsForUploadingLogs = nil
+LogsIniSettings = {}
 
 --#endregion **********
 
@@ -1394,8 +1394,8 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
     local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
     if fileExt == "log" then
       local baseFileName = getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
-      local logType = (IniSettingsForUploadingLogs[baseFileName] and
-                       IniSettingsForUploadingLogs[baseFileName].LOG_TYPE) or
+      local logType = (LogsIniSettings[baseFileName] and
+                       LogsIniSettings[baseFileName].LOG_TYPE) or
                       LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
       if logType == LogType.ONLINE then
         local filePath = "VPOS:" .. fileName
@@ -1731,10 +1731,7 @@ end
 --#region Initialization functions **********
 
 local function readLogsSectionFromAllIniFiles()
-  if IniSettingsForUploadingLogs then return end
-
   local fileList = vpos.file.getFileList("VPOS")
-  IniSettingsForUploadingLogs = {}
 
   for _, fileName in pairs(fileList) do
     local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
@@ -1754,7 +1751,7 @@ local function readLogsSectionFromAllIniFiles()
             if not baseFileName then
               logDev("Can't store " .. fileName .. " setting", "Can't get base file name")
             else
-              IniSettingsForUploadingLogs[baseFileName] = {LOG_TYPE = logType}
+              LogsIniSettings[baseFileName] = {LOG_TYPE = logType}
             end
           end
         end
