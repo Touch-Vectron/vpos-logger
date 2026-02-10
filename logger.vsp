@@ -838,12 +838,12 @@ local function checkThenPrependOrUpdateTouchmarkInReloggedMessageBody(msgBody, d
 
   _, _, relogTryChar = msgBody:find("^R([%d%-])", i)
   if not relogTryChar then -- 0th relog try with upload try before and no other flags after
-    msgBody = fmt("%sR0 %s", msgBody:sub(1, i - 1), msgBody)
+    msgBody = fmt("%sR0%s", msgBody:sub(1, i - 1), msgBody:sub(i))
     return true, msgBody
   else -- 0th upload try with other flags, or we already tried to upload this line at least once
-    local relogTry = (relogTryChar == "-" and 0) or (tonumber(relogTryChar, 10) + 1)
+    local relogTry = (relogTryChar == "-" and 0) or ((tonumber(relogTryChar, 10) or 0) + 1)
     if relogTry < MAX_LOG_LINE_RELOG_TRIES then
-      msgBody = fmt("%sR%d%s", msgBody:sub(1, i - 1), relogTry, msgBody:sub(i + 2))
+      msgBody = fmt("%sR%s%s", msgBody:sub(1, i - 1), relogTry, msgBody:sub(i + 2))
       return true, msgBody
     else
       return false, msgBody
@@ -854,11 +854,11 @@ end
 --- Moves messages from the circular buffer to the queue, for relogging them.<br/>
 --- Each message body is checked to see if it starts with a touch-mark, this being
 --- prepended or updated depending on its presence.<br/>
---- NOTE: After the move operation, the circular buffer is emptied (shallow) even if
---- no message was moved, so CALL WITH CARE!
----@param b table The buffer
----@param q table The queue
----@param count integer The count of messages to move <br/>
+--- NOTE: After the move operation, the circular buffer is emptied (shallowly) even
+--- if no message was moved, so CALL WITH CARE!
+---@param b table #The buffer
+---@param q table #The queue
+---@param count integer #The count of messages to move <br/>
 ---@see decomposeReloggedMessageDateTime
 ---@see checkThenPrependOrUpdateTouchmarkInReloggedMessageBody
 ---@see ListRepushLeft
