@@ -135,6 +135,12 @@ MAX_LOG_LINE_UPLOAD_TRIES = 5
 --- The maximum rounds for trying to delete a fully uploaded log file. A good range [2, 10].
 MAX_UPLOADED_LOG_DELETION_ROUNDS = 3
 
+--- Logs related settings from all scanned ".ini" files, needed to determine the next flag
+--- and for uploading offline log files.
+LogsIniSettings = {}
+--- Flag indicating that all Touch Vectron scripts have the logger configured to log offline.
+AreAllScriptsLoggingOffline = false
+
 --- ISO 8601 date constants.
 local IsoDate = {
   DATE_SEP_BYTE      = string.byte("-", 1), --- Separator between date parts.
@@ -195,12 +201,6 @@ OnlineCounter = 0
 UploadingLogFile = {}
 --- Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
-
---- Logs related settings from all scanned ".ini" files, needed to determine the next flag
---- and for uploading offline log files.
-LogsIniSettings = {}
---- Flag indicating that all Touch Vectron scripts have the logger configured to log offline.
-AreAllScriptsLoggingOffline = false
 
 --#endregion **********
 
@@ -1734,88 +1734,12 @@ end
 
 --#region Initialization functions **********
 
-local function readLogsSectionFromAllIniFiles()
-  local fileList = vpos.file.getFileList("VPOS")
-
-  for _, fileName in pairs(fileList) do
-    local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
-    if fileExt == "ini" then
-      local filePath = "VPOS:" .. fileName
-      local ok, initTab = pcall(vpos.utils.readIniFromFile, filePath)
-      if not ok then
-        logDev("Can't parse " .. fileName .. " settings", tostring(initTab))
-      elseif isTable(initTab) and isTable(initTab.LOGS) then
-        local iniLogType = initTab.LOGS.LOG_TYPE
-        if iniLogType then
-          local logType = string.lower(tostring(iniLogType))
-          if not isValidLogType(logType) then
-            logDev("Can't store " .. fileName .. " setting", logType .. " is not a valid log type")
-          else
-            local baseFileName = get_base_file_name_from_name(fileName)
-            if not baseFileName then
-              logDev("Can't store " .. fileName .. " setting", "Can't get base file name")
-            else
-              LogsIniSettings[baseFileName] = {LOG_TYPE = logType}
-            end
-          end
-        end
-      end
-    end
-  end
-
-  local getAuthorId = function(fileName)
-      return tonumber(vpos.tables.Table(806):getData(fileName, 18) or "0") or 0
-    end
-  AreAllScriptsLoggingOffline = true
-  local vspFileCount = 0
-  for _, fileName in pairs(fileList) do
-    local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
-    if fileExt == "vsp" then
-      vspFileCount = vspFileCount + 1
-      local ok, authorId = pcall(getAuthorId, fileName)
-      if not ok then
-        logDev("Can't get author ID of script " .. fileName, tostring(authorId))
-        --NOTE: we don't know who's script this is, so better be on the safe side
-        if LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI ~= LogType.OFFLINE then
-          AreAllScriptsLoggingOffline = false
-          break
-        end
-      elseif authorId == 3 then -- we (Touch Vectron) have ID 3
-        local baseFileName = get_base_file_name_from_name(fileName)
-        if not baseFileName then
-          logDev("Can't determine log type of script " .. fileName, "Can't get base file name")
-          if LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI ~= LogType.OFFLINE then
-            AreAllScriptsLoggingOffline = false
-            break
-          end
-        else
-          local logType = (LogsIniSettings[baseFileName] and
-                          LogsIniSettings[baseFileName].LOG_TYPE) or
-                          LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
-          if logType ~= LogType.OFFLINE then
-            AreAllScriptsLoggingOffline = false
-            break
-          end
-        end
-      end
-    end
-  end
-  if vspFileCount <= 0 then
-    AreAllScriptsLoggingOffline = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
-  end
-
-  --TODO: remove line!
-  AreAllScriptsLoggingOffline = false
-end
-
 local function initSettings()
   -- format the company name
   COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
   COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
   COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
   POS_NAME  = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
-
-  readLogsSectionFromAllIniFiles()
 end
 
 --- Gets the queue saved in the script metadata if present, otherwise an empty and initialized
@@ -1858,6 +1782,81 @@ local function initUploadingOfflineLogs()
   if IS_UPLOADING_LOGS_SUPPORTED then UploadStopWatch:start() end
 end
 
+local function initLogsIniRelatedVariables()
+  local fileList = vpos.file.getFileList("VPOS")
+
+  for _, fileName in pairs(fileList) do
+    local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
+    if fileExt == "ini" then
+      local filePath = "VPOS:" .. fileName
+      local ok, initTab = pcall(vpos.utils.readIniFromFile, filePath)
+      if not ok then
+        logDev("Can't parse " .. fileName .. " settings", tostring(initTab))
+      elseif isTable(initTab) and isTable(initTab.LOGS) then
+        local iniLogType = initTab.LOGS.LOG_TYPE
+        if iniLogType then
+          local logType = string.lower(tostring(iniLogType))
+          if not isValidLogType(logType) then
+            logDev("Can't store " .. fileName .. " setting", logType .. " is not a valid log type")
+          else
+            local baseFileName = get_base_file_name_from_name(fileName)
+            if not baseFileName then
+              logDev("Can't store " .. fileName .. " setting", "Can't get base file name")
+            else
+              LogsIniSettings[baseFileName] = {LOG_TYPE = logType}
+            end
+          end
+        end
+      end
+    end
+  end
+
+  local getAuthorId = function(fileName)
+      local authorId = vpos.tables.Table(806):getData(fileName, 18)
+      return tonumber(tostring(authorId or "0")) or 0
+    end
+  AreAllScriptsLoggingOffline = true
+  local vspFileCount = 0
+  for _, fileName in pairs(fileList) do
+    local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
+    if fileExt == "vsp" then
+      vspFileCount = vspFileCount + 1
+      local ok, authorId = pcall(getAuthorId, fileName)
+      if not ok then
+        logDev("Can't get author ID of script " .. fileName, tostring(authorId))
+        --NOTE: we don't know who's script this is, so better be on the safe side
+        if LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI ~= LogType.OFFLINE then
+          AreAllScriptsLoggingOffline = false
+          break
+        end
+      elseif authorId == 3 then -- we (Touch Vectron) have ID 3
+        local baseFileName = get_base_file_name_from_name(fileName)
+        if not baseFileName then
+          logDev("Can't determine log type of script " .. fileName, "Can't get base file name")
+          if LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI ~= LogType.OFFLINE then
+            AreAllScriptsLoggingOffline = false
+            break
+          end
+        else
+          local logType = (LogsIniSettings[baseFileName] and
+                           LogsIniSettings[baseFileName].LOG_TYPE) or
+                          LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
+          if logType ~= LogType.OFFLINE then
+            AreAllScriptsLoggingOffline = false
+            break
+          end
+        end
+      end
+    end
+  end
+  if vspFileCount <= 0 then
+    AreAllScriptsLoggingOffline = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
+  end
+
+  --TODO: for testing only, remove line!
+  AreAllScriptsLoggingOffline = false
+end
+
 --#endregion **********
 
 
@@ -1869,6 +1868,8 @@ initLogQueues()
 initUploadingOfflineLogs()
 
 vpos.script.registerAsInterScript()
+
+initLogsIniRelatedVariables()
 
 registerTimer()
 
