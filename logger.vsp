@@ -1043,7 +1043,8 @@ local function renewLogSocket(url)
     OnlineCounter  = 0
   end
 
-  if (wasSocketValid and not LogSocket) and
+  if not AreAllScriptsLoggingOffline and
+     (wasSocketValid and not LogSocket) and
      offlineCount <  OFFLINE_COUNT_FOR_SOCKET_RENEWING and
      onlineCount  >= ONLINE_COUNT_FOR_SOCKET_RENEWING then
     handleUnnoticedConnectionDown(LogList, LogSentBuffer, offlineCount, onlineCount)
@@ -1867,9 +1868,6 @@ local function initLogsIniRelatedVariables()
   if vspFileCount <= 0 then
     AreAllScriptsLoggingOffline = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
   end
-
-  --TODO: for testing only, remove line!
-  AreAllScriptsLoggingOffline = false
 end
 
 --#endregion **********
