@@ -8,6 +8,8 @@
 
 --#region Script constants, enums and types **********
 
+local EMPTY_STR   = ""  --- Empty string constant.
+
 ---@enum logLevel # Logging level.
 logLevel = {
   Off   = "off",
@@ -42,9 +44,9 @@ COMMON_LOG_SIZE = 500
 LOG_URL         = "http://rza.ro:55514"
 
 --- Company name.
-COMP_NAME = ""
+COMP_NAME = EMPTY_STR
 --- POS name.
-POS_NAME  = ""
+POS_NAME  = EMPTY_STR
 
 --- Switch to enable asserting logger code. SHOULD be used only for development!
 ENABLE_LOGGER_ASSERTS   = false
@@ -103,11 +105,11 @@ if ENABLE_LOGGER_ANALYTICS then
 end
 
 --- Name of this script.
-LOGGER_SCRIPT_NAME      = "logger.vsp"
+LOGGER_SCRIPT_NAME      = ""
 --- Log file name of this logger script.
-LOGGER_LOG_NAME         = "logger.log"
+LOGGER_LOG_NAME         = ""
 --- Backup log file name of this logger script.
-LOGGER_BACKUP_LOG_NAME  = "logger.1.log"
+LOGGER_BACKUP_LOG_NAME  = ""
 
 --- Flag indicating if uploading offline logs is supported on the current VPOS.
 IS_UPLOADING_LOGS_SUPPORTED = false
@@ -1739,7 +1741,12 @@ local function initSettings()
   COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
   COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
   COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
-  POS_NAME  = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+  POS_NAME  = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId)):gsub(" ", "")
+
+  LOGGER_SCRIPT_NAME      = vpos.script.currentScript():getName() or "logger.vsp"
+  local scriptBaseName    = get_base_file_name_from_name(LOGGER_SCRIPT_NAME)
+  LOGGER_LOG_NAME         = scriptBaseName .. ".log"
+  LOGGER_BACKUP_LOG_NAME  = scriptBaseName .. ".1.log"
 end
 
 --- Gets the queue saved in the script metadata if present, otherwise an empty and initialized
