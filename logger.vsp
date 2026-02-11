@@ -441,7 +441,7 @@ local function logDev(devMsg, errMsg)
   ListPushLeft({
     scriptName   = LOGGER_SCRIPT_NAME,
     url          = LOG_URL,
-    logType      = LogType.ONLINE,
+    logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
     logSize      = COMMON_LOG_SIZE,
     priority     = Priority.USER_DEV,
     messageLevel = logLevel.Dev,
@@ -461,7 +461,7 @@ if ENABLE_LOGGER_LOGS then
     ListPushLeft({
       scriptName   = LOGGER_SCRIPT_NAME,
       url          = LOG_URL,
-      logType      = LogType.ONLINE,
+      logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = Priority.USER_DEBUG,
       messageLevel = logLevel.Debug,
@@ -491,7 +491,7 @@ if ENABLE_LOGGER_LOGS then
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
         url          = LOG_URL,
-        logType      = LogType.ONLINE,
+        logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_DEBUG,
         messageLevel = logLevel.Debug,
@@ -1016,7 +1016,7 @@ local function handleUnnoticedConnectionDown(q, b, offlineCount, onlineCount)
     ListPushLeft({
       scriptName   = LOGGER_SCRIPT_NAME,
       url          = LOG_URL,
-      logType      = LogType.ONLINE,
+      logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = Priority.USER_ERROR,
       messageLevel = logLevel.Error,
@@ -1262,7 +1262,7 @@ local function sendFromQueue(q, b)
         ListPushLeft({
           scriptName   = LOGGER_SCRIPT_NAME,
           url          = LOG_URL,
-          logType      = LogType.ONLINE,
+          logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
           logSize      = COMMON_LOG_SIZE,
           priority     = Priority.USER_ERROR,
           messageLevel = logLevel.Error,
@@ -1273,7 +1273,7 @@ local function sendFromQueue(q, b)
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
         url          = LOG_URL,
-        logType      = LogType.ONLINE,
+        logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_ERROR,
         messageLevel = logLevel.Error,
@@ -1314,7 +1314,7 @@ local function handleQueues(q, b)
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
         url          = LOG_URL,
-        logType      = LogType.ONLINE,
+        logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_WARN,
         messageLevel = logLevel.Warn,
@@ -1333,7 +1333,7 @@ local function handleQueues(q, b)
           ListPushLeft({
             scriptName   = LOGGER_SCRIPT_NAME,
             url          = LOG_URL,
-            logType      = LogType.ONLINE,
+            logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
             logSize      = COMMON_LOG_SIZE,
             priority     = Priority.USER_ERROR,
             messageLevel = logLevel.Error,
@@ -1574,7 +1574,7 @@ local function uploadLogFileLine(line)
       datetime     = UploadingLogFile.lastIsoDate,
       scriptName   = UploadingLogFile.lastScriptName,
       url          = LOG_URL,
-      logType      = LogType.ONLINE,
+      logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = mapMessageLevelToPriority(UploadingLogFile.lastMessageLevel),
       messageLevel = UploadingLogFile.lastMessageLevel,
@@ -1601,7 +1601,7 @@ local function uploadLogFileLine(line)
       datetime     = decomposedMsg.sendingIsoDate,
       scriptName   = UploadingLogFile.lastScriptName,
       url          = LOG_URL,
-      logType      = LogType.ONLINE,
+      logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = mapMessageLevelToPriority(decomposedMsg.messageLevel),
       messageLevel = decomposedMsg.messageLevel,
