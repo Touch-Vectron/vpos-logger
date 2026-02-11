@@ -1695,7 +1695,7 @@ local function deleteFullyProcessedLogFileAndUploadingLogFile()
 end
 
 local function uploadOfflineLogs()
-  if not isUploadRound() then return end
+  if AreAllScriptsLoggingOffline or not isUploadRound() then return end
 
   local maxUploadLogLines = determineMaxLogLinesForUploadRound()
   if maxUploadLogLines > 0 and isLoggerConnectedOnline() then
@@ -1793,6 +1793,7 @@ end
 local function initLogsIniRelatedVariables()
   local fileList = vpos.file.getFileList("VPOS")
 
+  -- scan LOGS section of all INI files
   for _, fileName in pairs(fileList) do
     local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
     if fileExt == "ini" then
@@ -1819,6 +1820,7 @@ local function initLogsIniRelatedVariables()
     end
   end
 
+  -- determine the value of AreAllScriptsLoggingOffline
   local getAuthorId = function(fileName)
       local authorId = vpos.tables.Table(806):getData(fileName, 18)
       return tonumber(tostring(authorId or "0")) or 0
@@ -1868,6 +1870,13 @@ local function initLogsIniRelatedVariables()
   if vspFileCount <= 0 then
     AreAllScriptsLoggingOffline = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
   end
+
+  -- set AreAllScriptsLoggingOffline value for the logger itself, being without an INI
+  local loggerBaseName = get_base_file_name_from_name(LOGGER_SCRIPT_NAME)
+  ---@cast loggerBaseName -nil
+  LogsIniSettings[loggerBaseName] = {
+    LOG_TYPE = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE
+  }
 end
 
 --#endregion **********
