@@ -1398,8 +1398,8 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
     local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
     if fileExt == "log" then
       local baseFileName = getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
-      local logType = (LogsIniSettings[baseFileName] and
-                       LogsIniSettings[baseFileName].LOG_TYPE) or
+      local logType = (LogsIniSettings[baseFileName] ~= nil and
+                       LogsIniSettings[baseFileName].LOG_TYPE ~= nil) or
                       LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
       if logType == LogType.ONLINE then
         local filePath = "VPOS:" .. fileName
@@ -1837,10 +1837,18 @@ local function initLogsIniRelatedVariables()
             AreAllScriptsLoggingOffline = false
             break
           end
-        else
-          local logType = (LogsIniSettings[baseFileName] and
-                           LogsIniSettings[baseFileName].LOG_TYPE) or
-                          LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
+        elseif (baseFileName:find("logger$")) == nil then
+          --NOTE: more VSP files can use the same INI, so determine the right INI and
+          -- conceive a "virtual INI base name" for future ease with these VSP-s!
+          local logBaseName = baseFileName
+          while logBaseName ~= nil and LogsIniSettings[logBaseName] == nil do
+            logBaseName = logBaseName:match("(.+)_.*")
+          end
+          local logType = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
+          if logBaseName ~= nil and LogsIniSettings[logBaseName].LOG_TYPE ~= nil then
+            logType = LogsIniSettings[logBaseName].LOG_TYPE
+            LogsIniSettings[baseFileName] = {LOG_TYPE = logType}
+          end
           if logType ~= LogType.OFFLINE then
             AreAllScriptsLoggingOffline = false
             break
