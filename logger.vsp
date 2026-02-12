@@ -139,9 +139,9 @@ MAX_UPLOADED_LOG_DELETION_ROUNDS = 3
 
 --- Logs related settings from all scanned ".ini" files, needed to determine the next flag
 --- and for uploading offline log files.
-LogsIniSettings = {}
+local LogsIniSettings = {}
 --- Flag indicating that all Touch Vectron scripts have the logger configured to log offline.
-AreAllScriptsLoggingOffline = false
+local AreAllScriptsLoggingOffline = false
 
 --- ISO 8601 date constants.
 local IsoDate = {
@@ -1829,7 +1829,7 @@ local function initLogsIniRelatedVariables()
   local vspFileCount = 0
   for _, fileName in pairs(fileList) do
     local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
-    if fileExt == "vsp" then
+    if fileExt == "vsp" and fileName ~= LOGGER_SCRIPT_NAME then
       vspFileCount = vspFileCount + 1
       local ok, authorId = pcall(getAuthorId, fileName)
       if not ok then
@@ -1847,7 +1847,7 @@ local function initLogsIniRelatedVariables()
             AreAllScriptsLoggingOffline = false
             break
           end
-        elseif (baseFileName:find("logger$")) == nil then
+        else
           --NOTE: more VSP files can use the same INI, so determine the right INI and
           -- conceive a "virtual INI base name" for future ease with these VSP-s!
           local logBaseName = baseFileName
@@ -1871,7 +1871,7 @@ local function initLogsIniRelatedVariables()
     AreAllScriptsLoggingOffline = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
   end
 
-  -- set AreAllScriptsLoggingOffline value for the logger itself, being without an INI
+  -- set the logger's logging type according to AreAllScriptsLoggingOffline, being without an INI
   local loggerBaseName = get_base_file_name_from_name(LOGGER_SCRIPT_NAME)
   ---@cast loggerBaseName -nil
   LogsIniSettings[loggerBaseName] = {
