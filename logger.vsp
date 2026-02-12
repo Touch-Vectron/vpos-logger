@@ -1,8 +1,8 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.16
+--!ScriptVersion: 2.17
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
--- Date: 09/2025
+-- Date: 02/2026
 -- Description: use metadata and queue for sending log messages to URL (online) or file (offline)
 
 
