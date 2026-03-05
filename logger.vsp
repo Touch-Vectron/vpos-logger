@@ -1,12 +1,14 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.16
+--!ScriptVersion: 2.17
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
--- Date: 09/2025
+-- Date: 02/2026
 -- Description: use metadata and queue for sending log messages to URL (online) or file (offline)
 
 
 --#region Script constants, enums and types **********
+
+local EMPTY_STR   = ""  --- Empty string constant.
 
 ---@enum logLevel # Logging level.
 logLevel = {
@@ -42,9 +44,9 @@ COMMON_LOG_SIZE = 500
 LOG_URL         = "http://rza.ro:55514"
 
 --- Company name.
-COMP_NAME = ""
+COMP_NAME = EMPTY_STR
 --- POS name.
-POS_NAME  = ""
+POS_NAME  = EMPTY_STR
 
 --- Switch to enable asserting logger code. SHOULD be used only for development!
 ENABLE_LOGGER_ASSERTS   = false
@@ -103,11 +105,11 @@ if ENABLE_LOGGER_ANALYTICS then
 end
 
 --- Name of this script.
-LOGGER_SCRIPT_NAME      = "logger.vsp"
+LOGGER_SCRIPT_NAME      = ""
 --- Log file name of this logger script.
-LOGGER_LOG_NAME         = "logger.log"
+LOGGER_LOG_NAME         = ""
 --- Backup log file name of this logger script.
-LOGGER_BACKUP_LOG_NAME  = "logger.1.log"
+LOGGER_BACKUP_LOG_NAME  = ""
 
 --- Flag indicating if uploading offline logs is supported on the current VPOS.
 IS_UPLOADING_LOGS_SUPPORTED = false
@@ -134,6 +136,12 @@ UPLOAD_LOG_LINE_AGE_IN_DAYS = 30
 MAX_LOG_LINE_UPLOAD_TRIES = 5
 --- The maximum rounds for trying to delete a fully uploaded log file. A good range [2, 10].
 MAX_UPLOADED_LOG_DELETION_ROUNDS = 3
+
+--- Logs related settings from all scanned ".ini" files, needed to determine the next flag
+--- and for uploading offline log files.
+local LogsIniSettings = {}
+--- Flag indicating that all Touch Vectron scripts have the logger configured to log offline.
+local AreAllScriptsLoggingOffline = false
 
 --- ISO 8601 date constants.
 local IsoDate = {
@@ -195,8 +203,6 @@ OnlineCounter = 0
 UploadingLogFile = {}
 --- Stop watch for uploading offline saved logs.
 UploadStopWatch = vpos.datetime.StopWatch()
---- Logs related settings from all scanned ".ini" files, needed for uploading offline log files.
-IniSettingsForUploadingLogs = nil
 
 --#endregion **********
 
@@ -435,7 +441,7 @@ local function logDev(devMsg, errMsg)
   ListPushLeft({
     scriptName   = LOGGER_SCRIPT_NAME,
     url          = LOG_URL,
-    logType      = LogType.ONLINE,
+    logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
     logSize      = COMMON_LOG_SIZE,
     priority     = Priority.USER_DEV,
     messageLevel = logLevel.Dev,
@@ -455,7 +461,7 @@ if ENABLE_LOGGER_LOGS then
     ListPushLeft({
       scriptName   = LOGGER_SCRIPT_NAME,
       url          = LOG_URL,
-      logType      = LogType.ONLINE,
+      logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = Priority.USER_DEBUG,
       messageLevel = logLevel.Debug,
@@ -485,7 +491,7 @@ if ENABLE_LOGGER_LOGS then
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
         url          = LOG_URL,
-        logType      = LogType.ONLINE,
+        logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_DEBUG,
         messageLevel = logLevel.Debug,
@@ -838,12 +844,12 @@ local function checkThenPrependOrUpdateTouchmarkInReloggedMessageBody(msgBody, d
 
   _, _, relogTryChar = msgBody:find("^R([%d%-])", i)
   if not relogTryChar then -- 0th relog try with upload try before and no other flags after
-    msgBody = fmt("%sR0 %s", msgBody:sub(1, i - 1), msgBody)
+    msgBody = fmt("%sR0%s", msgBody:sub(1, i - 1), msgBody:sub(i))
     return true, msgBody
   else -- 0th upload try with other flags, or we already tried to upload this line at least once
-    local relogTry = (relogTryChar == "-" and 0) or (tonumber(relogTryChar, 10) + 1)
+    local relogTry = (relogTryChar == "-" and 0) or ((tonumber(relogTryChar, 10) or 0) + 1)
     if relogTry < MAX_LOG_LINE_RELOG_TRIES then
-      msgBody = fmt("%sR%d%s", msgBody:sub(1, i - 1), relogTry, msgBody:sub(i + 2))
+      msgBody = fmt("%sR%s%s", msgBody:sub(1, i - 1), relogTry, msgBody:sub(i + 2))
       return true, msgBody
     else
       return false, msgBody
@@ -854,11 +860,11 @@ end
 --- Moves messages from the circular buffer to the queue, for relogging them.<br/>
 --- Each message body is checked to see if it starts with a touch-mark, this being
 --- prepended or updated depending on its presence.<br/>
---- NOTE: After the move operation, the circular buffer is emptied (shallow) even if
---- no message was moved, so CALL WITH CARE!
----@param b table The buffer
----@param q table The queue
----@param count integer The count of messages to move <br/>
+--- NOTE: After the move operation, the circular buffer is emptied (shallowly) even
+--- if no message was moved, so CALL WITH CARE!
+---@param b table #The buffer
+---@param q table #The queue
+---@param count integer #The count of messages to move <br/>
 ---@see decomposeReloggedMessageDateTime
 ---@see checkThenPrependOrUpdateTouchmarkInReloggedMessageBody
 ---@see ListRepushLeft
@@ -1010,7 +1016,7 @@ local function handleUnnoticedConnectionDown(q, b, offlineCount, onlineCount)
     ListPushLeft({
       scriptName   = LOGGER_SCRIPT_NAME,
       url          = LOG_URL,
-      logType      = LogType.ONLINE,
+      logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = Priority.USER_ERROR,
       messageLevel = logLevel.Error,
@@ -1037,7 +1043,8 @@ local function renewLogSocket(url)
     OnlineCounter  = 0
   end
 
-  if (wasSocketValid and not LogSocket) and
+  if not AreAllScriptsLoggingOffline and
+     (wasSocketValid and not LogSocket) and
      offlineCount <  OFFLINE_COUNT_FOR_SOCKET_RENEWING and
      onlineCount  >= ONLINE_COUNT_FOR_SOCKET_RENEWING then
     handleUnnoticedConnectionDown(LogList, LogSentBuffer, offlineCount, onlineCount)
@@ -1255,7 +1262,7 @@ local function sendFromQueue(q, b)
         ListPushLeft({
           scriptName   = LOGGER_SCRIPT_NAME,
           url          = LOG_URL,
-          logType      = LogType.ONLINE,
+          logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
           logSize      = COMMON_LOG_SIZE,
           priority     = Priority.USER_ERROR,
           messageLevel = logLevel.Error,
@@ -1266,7 +1273,7 @@ local function sendFromQueue(q, b)
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
         url          = LOG_URL,
-        logType      = LogType.ONLINE,
+        logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_ERROR,
         messageLevel = logLevel.Error,
@@ -1307,7 +1314,7 @@ local function handleQueues(q, b)
       ListPushLeft({
         scriptName   = LOGGER_SCRIPT_NAME,
         url          = LOG_URL,
-        logType      = LogType.ONLINE,
+        logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
         logSize      = COMMON_LOG_SIZE,
         priority     = Priority.USER_WARN,
         messageLevel = logLevel.Warn,
@@ -1326,7 +1333,7 @@ local function handleQueues(q, b)
           ListPushLeft({
             scriptName   = LOGGER_SCRIPT_NAME,
             url          = LOG_URL,
-            logType      = LogType.ONLINE,
+            logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
             logSize      = COMMON_LOG_SIZE,
             priority     = Priority.USER_ERROR,
             messageLevel = logLevel.Error,
@@ -1364,39 +1371,6 @@ local function isLoggerConnectedOnline()
   return LogSocket and LogSocket:isOpen() and LogSocket:isConnected()
 end
 
-local function readIniSettingsForUploadingOfflineLogs()
-  if IniSettingsForUploadingLogs then return end
-
-  local fileList = vpos.file.getFileList("VPOS")
-  IniSettingsForUploadingLogs = {}
-
-  for _, fileName in pairs(fileList) do
-    local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
-    if fileExt == "ini" then
-      local filePath = "VPOS:" .. fileName
-      local ok, initTab = pcall(vpos.utils.readIniFromFile, filePath)
-      if not ok then -- `initTab` is `pcall`s error message here
-        logDev("Can't parse " .. fileName .. " settings", initTab)
-      elseif isTable(initTab) and isTable(initTab.LOGS) then
-        local iniLogType = initTab.LOGS.LOG_TYPE
-        if iniLogType then
-          local logType = string.lower(tostring(iniLogType))
-          if not isValidLogType(logType) then
-            logDev("Can't store " .. fileName .. " setting", logType .. " is not a valid log type")
-          else
-            local baseFileName = get_base_file_name_from_name(fileName)
-            if not baseFileName then
-              logDev("Can't store " .. fileName .. " setting", "Can't get base file name")
-            else
-              IniSettingsForUploadingLogs[baseFileName] = {LOG_TYPE = logType}
-            end
-          end
-        end
-      end
-    end
-  end
-end
-
 local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
   local fileList = vpos.file.getFileList("VPOS")
 
@@ -1427,8 +1401,8 @@ local function updateUploadingLogFileWhileDeletingEmptyLogFiles()
     local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
     if fileExt == "log" then
       local baseFileName = getBaseFileNameWithoutLogBackupSuffixFromName(fileName)
-      local logType = (IniSettingsForUploadingLogs[baseFileName] and
-                       IniSettingsForUploadingLogs[baseFileName].LOG_TYPE) or
+      local logType = (LogsIniSettings[baseFileName] ~= nil and
+                       LogsIniSettings[baseFileName].LOG_TYPE ~= nil) or
                       LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
       if logType == LogType.ONLINE then
         local filePath = "VPOS:" .. fileName
@@ -1600,7 +1574,7 @@ local function uploadLogFileLine(line)
       datetime     = UploadingLogFile.lastIsoDate,
       scriptName   = UploadingLogFile.lastScriptName,
       url          = LOG_URL,
-      logType      = LogType.ONLINE,
+      logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = mapMessageLevelToPriority(UploadingLogFile.lastMessageLevel),
       messageLevel = UploadingLogFile.lastMessageLevel,
@@ -1627,7 +1601,7 @@ local function uploadLogFileLine(line)
       datetime     = decomposedMsg.sendingIsoDate,
       scriptName   = UploadingLogFile.lastScriptName,
       url          = LOG_URL,
-      logType      = LogType.ONLINE,
+      logType      = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE,
       logSize      = COMMON_LOG_SIZE,
       priority     = mapMessageLevelToPriority(decomposedMsg.messageLevel),
       messageLevel = decomposedMsg.messageLevel,
@@ -1721,11 +1695,10 @@ local function deleteFullyProcessedLogFileAndUploadingLogFile()
 end
 
 local function uploadOfflineLogs()
-  if not isUploadRound() then return end
+  if AreAllScriptsLoggingOffline or not isUploadRound() then return end
 
   local maxUploadLogLines = determineMaxLogLinesForUploadRound()
   if maxUploadLogLines > 0 and isLoggerConnectedOnline() then
-    readIniSettingsForUploadingOfflineLogs()
     updateUploadingLogFileWhileDeletingEmptyLogFiles()
     if UploadingLogFile.fileName then
       local processedSize = uploadChunkOfLogFileLines(maxUploadLogLines)
@@ -1769,7 +1742,12 @@ local function initSettings()
   COMP_NAME = string.lower(vpos.systeminfo.Company():getName())
   COMP_NAME = COMP_NAME:gsub("sc", ""):gsub(" ", "")
   COMP_NAME = COMP_NAME:sub(1, 4) .. "_"
-  POS_NAME  = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId):gsub(" ", ""))
+  POS_NAME  = tostring(vpos.getSystemInfo(vpos.SystemInfo.ECRId)):gsub(" ", "")
+
+  LOGGER_SCRIPT_NAME      = vpos.script.currentScript():getName() or "logger.vsp"
+  local scriptBaseName    = get_base_file_name_from_name(LOGGER_SCRIPT_NAME)
+  LOGGER_LOG_NAME         = scriptBaseName .. ".log"
+  LOGGER_BACKUP_LOG_NAME  = scriptBaseName .. ".1.log"
 end
 
 --- Gets the queue saved in the script metadata if present, otherwise an empty and initialized
@@ -1812,6 +1790,95 @@ local function initUploadingOfflineLogs()
   if IS_UPLOADING_LOGS_SUPPORTED then UploadStopWatch:start() end
 end
 
+local function initLogsIniRelatedVariables()
+  local fileList = vpos.file.getFileList("VPOS")
+
+  -- scan LOGS section of all INI files
+  for _, fileName in pairs(fileList) do
+    local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
+    if fileExt == "ini" then
+      local filePath = "VPOS:" .. fileName
+      local ok, initTab = pcall(vpos.utils.readIniFromFile, filePath)
+      if not ok then
+        logDev("Can't parse " .. fileName .. " settings", tostring(initTab))
+      elseif isTable(initTab) and isTable(initTab.LOGS) then
+        local iniLogType = initTab.LOGS.LOG_TYPE
+        if iniLogType then
+          local logType = string.lower(tostring(iniLogType))
+          if not isValidLogType(logType) then
+            logDev("Can't store " .. fileName .. " setting", logType .. " is not a valid log type")
+          else
+            local baseFileName = get_base_file_name_from_name(fileName)
+            if not baseFileName then
+              logDev("Can't store " .. fileName .. " setting", "Can't get base file name")
+            else
+              LogsIniSettings[baseFileName] = {LOG_TYPE = logType}
+            end
+          end
+        end
+      end
+    end
+  end
+
+  -- determine the value of AreAllScriptsLoggingOffline
+  local getAuthorId = function(fileName)
+      local authorId = vpos.tables.Table(806):getData(fileName, 18)
+      return tonumber(tostring(authorId or "0")) or 0
+    end
+  AreAllScriptsLoggingOffline = true
+  local vspFileCount = 0
+  for _, fileName in pairs(fileList) do
+    local fileExt = string.lower(get_file_extension_from_name(fileName) or "")
+    if fileExt == "vsp" and fileName ~= LOGGER_SCRIPT_NAME then
+      vspFileCount = vspFileCount + 1
+      local ok, authorId = pcall(getAuthorId, fileName)
+      if not ok then
+        logDev("Can't get author ID of script " .. fileName, tostring(authorId))
+        --NOTE: we don't know who's script this is, so better be on the safe side
+        if LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI ~= LogType.OFFLINE then
+          AreAllScriptsLoggingOffline = false
+          break
+        end
+      elseif authorId == 3 then -- we (Touch Vectron) have ID 3
+        local baseFileName = get_base_file_name_from_name(fileName)
+        if not baseFileName then
+          logDev("Can't determine log type of script " .. fileName, "Can't get base file name")
+          if LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI ~= LogType.OFFLINE then
+            AreAllScriptsLoggingOffline = false
+            break
+          end
+        else
+          --NOTE: more VSP files can use the same INI, so determine the right INI and
+          -- conceive a "virtual INI base name" for future ease with these VSP-s!
+          local logBaseName = baseFileName
+          while logBaseName ~= nil and LogsIniSettings[logBaseName] == nil do
+            logBaseName = logBaseName:match("(.+)_.*")
+          end
+          local logType = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
+          if logBaseName ~= nil and LogsIniSettings[logBaseName].LOG_TYPE ~= nil then
+            logType = LogsIniSettings[logBaseName].LOG_TYPE
+            LogsIniSettings[baseFileName] = {LOG_TYPE = logType}
+          end
+          if logType ~= LogType.OFFLINE then
+            AreAllScriptsLoggingOffline = false
+            break
+          end
+        end
+      end
+    end
+  end
+  if vspFileCount <= 0 then
+    AreAllScriptsLoggingOffline = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
+  end
+
+  -- set the logger's logging type according to AreAllScriptsLoggingOffline, being without an INI
+  local loggerBaseName = get_base_file_name_from_name(LOGGER_SCRIPT_NAME)
+  ---@cast loggerBaseName -nil
+  LogsIniSettings[loggerBaseName] = {
+    LOG_TYPE = (AreAllScriptsLoggingOffline and LogType.OFFLINE) or LogType.ONLINE
+  }
+end
+
 --#endregion **********
 
 
@@ -1823,6 +1890,8 @@ initLogQueues()
 initUploadingOfflineLogs()
 
 vpos.script.registerAsInterScript()
+
+initLogsIniRelatedVariables()
 
 registerTimer()
 

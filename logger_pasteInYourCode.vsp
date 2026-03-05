@@ -1,5 +1,5 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.16
+--!ScriptVersion: 2.17
 
 
 ------------------------------------------------------------------------------
@@ -287,7 +287,8 @@ function logger(level, logType, logSize, url, scriptName, scriptVersion, scriptU
     for k, v in pairs(t) do
       if type(v) == "table" then
         newT[k] = self.sanitize_credentials(v)
-      elseif tostring(k):lower():find("pass", 1, true) then
+      elseif tostring(k):lower():find("pass", 1, true) or
+             tostring(k):lower():find("kennwort", 1, true) then
         newT[k] = "****"
       else
         newT[k] = v
@@ -313,11 +314,11 @@ function readIni()
   -----------------------------------------------------------------------------
 
   if initTab.LOGS then
-    LOG_LEVEL         = (initTab.LOGS.LOG_LEVEL         and tostring(initTab.LOGS.LOG_LEVEL):lower()) or LOG_LEVEL
-    LOG_TYPE          = (initTab.LOGS.LOG_TYPE          and tostring(initTab.LOGS.LOG_TYPE):lower())  or LOG_TYPE
-    LOG_SIZE          = (initTab.LOGS.LOG_SIZE          and tonumber(initTab.LOGS.LOG_SIZE))          or LOG_SIZE
-    LOG_TRUNCATE_SIZE = (initTab.LOGS.LOG_TRUNCATE_SIZE and tonumber(initTab.LOGS.LOG_TRUNCATE_SIZE)) or LOG_TRUNCATE_SIZE
-    LOG_URL           = (initTab.LOGS.LOG_URL           and tostring(initTab.LOGS.LOG_URL))           or LOG_URL
+    LOG_LEVEL         = tostring(initTab.LOGS.LOG_LEVEL          or LOG_LEVEL):lower()
+    LOG_TYPE          = tostring(initTab.LOGS.LOG_TYPE           or LOG_TYPE):lower()
+    LOG_SIZE          = tonumber(initTab.LOGS.LOG_SIZE)          or LOG_SIZE
+    LOG_TRUNCATE_SIZE = tonumber(initTab.LOGS.LOG_TRUNCATE_SIZE) or LOG_TRUNCATE_SIZE
+    LOG_URL           = tostring(initTab.LOGS.LOG_URL            or LOG_URL)
   end
 
   local scriptName    = vpos.script.currentScript():getName() or ""
@@ -328,6 +329,7 @@ function readIni()
   if LOG_LEVEL == logLevel.Off then
     -- create a mock "object" with no functionality
     Log = {
+      ["sanitize_credentials"] = function(t) return {} end,
       ["scriptInfo"]           = function() end,
       [logLevel.Trace]         = function() end,
       [logLevel.Debug]         = function() end,
@@ -344,16 +346,7 @@ function readIni()
     Log = logger(LOG_LEVEL, LOG_TYPE, LOG_SIZE, LOG_URL, scriptName, scriptVersion, scriptUpdate)
   end
 
-  -- hide passwords from ini files so they are not logged
-  for section, settings in pairs(initTab) do
-    for k,v in pairs(settings) do
-      if k:find("pass") or k:find("password") or k:find("passwort") or k:find("kennwort") then
-       settings[k] = "****"
-      end
-    end
-  end
-
-  Log.scriptInfo(vpos.utils.encodeJSON(initTab or {}))
+  Log.scriptInfo(vpos.utils.encodeJSON(Log.sanitize_credentials(initTab)))
 
   -----------------------------------------------------------------------------
   ----------- END 3. INITIALIZATION PROCEDURE  --------------------------------
