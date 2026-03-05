@@ -1790,7 +1790,7 @@ local function initUploadingOfflineLogs()
   if IS_UPLOADING_LOGS_SUPPORTED then UploadStopWatch:start() end
 end
 
-local function initLogsIniRelatedVariables()
+local function initLogsIniRelatedConstants()
   local fileList = vpos.file.getFileList("VPOS")
 
   -- scan LOGS section of all INI files
@@ -1891,7 +1891,7 @@ initUploadingOfflineLogs()
 
 vpos.script.registerAsInterScript()
 
-initLogsIniRelatedVariables()
+initLogsIniRelatedConstants()
 
 registerTimer()
 
