@@ -1868,7 +1868,7 @@ local function initLogsIniRelatedConstants()
     end
   end
   if vspFileCount <= 0 then
-    AreAllScriptsLoggingOffline = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
+    AreAllScriptsLoggingOffline = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI == LogType.OFFLINE
   end
 
   -- set the logger's logging type according to AreAllScriptsLoggingOffline, being without an INI
