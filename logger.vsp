@@ -840,14 +840,14 @@ local function circularBufferPush(b, message)
 end
 
 --- Decomposes the given ISO date of a log line / message, which is to be relogged.
----@param isoDate string? 
----@return table? decomposedDate The decomposed ISO date on success, otherwise `nil` <br/>
+---@param isoDate string? #The ISO date to be decomposed
+---@return table? decomposedDate #The decomposed ISO date if it is valid and successfully processed, otherwise `nil` <br/>
 ---@see decomposeIsoDate 
 local function decomposeReloggedMessageDateTime(isoDate)
   local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
   if not ok then -- `decomposedDate` is `pcall`s error message here
     local errMsg = getErrorReason(tostring(decomposedDate))
-    logDev("Can't decompose `" .. isoDate .. "` as ISO date", errMsg)
+    logDev("Can't decompose `" .. tostring(isoDate) .. "` as ISO date", errMsg)
     -- upon errors consider that the date-time is unknown
     return nil
   end
