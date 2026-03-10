@@ -1,8 +1,8 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.17
+--!ScriptVersion: 2.18
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
--- Date: 02/2026
+-- Date: 03/2026
 -- Description: use metadata and queue for sending log messages to URL (online) or file (offline)
 
 
@@ -155,6 +155,8 @@ local IsoDate = {
 --ATTENTION: keep this constant and all explicit usages of its string value in sync!<br/>
 --- An unknown/unrecognized date-time.
 UNKNOWN_DATETIME = "D?T?"
+--- Timezone hour(s) offset determined from SAC (script activation code) user data of
+--- the currect script.
 TIMEZONE_HOUR_OFFSET = 2
 
 --- A table with all of the offline message parts, owning to this logger script:
