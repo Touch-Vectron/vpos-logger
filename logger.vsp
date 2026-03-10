@@ -1,8 +1,8 @@
 --!ScriptAPI: 1.14
---!ScriptVersion: 2.17
+--!ScriptVersion: 2.18
 -- Script name: logger.vsp
 -- Author: Vlad Isac, R. Arjocu
--- Date: 02/2026
+-- Date: 03/2026
 -- Description: use metadata and queue for sending log messages to URL (online) or file (offline)
 
 
@@ -155,6 +155,9 @@ local IsoDate = {
 --ATTENTION: keep this constant and all explicit usages of its string value in sync!<br/>
 --- An unknown/unrecognized date-time.
 UNKNOWN_DATETIME = "D?T?"
+--- Timezone hour(s) offset determined from SAC (script activation code) user data of
+--- the currect script.
+TIMEZONE_HOUR_OFFSET = 2
 
 --- A table with all of the offline message parts, owning to this logger script:
 ---  * `scriptName`: the script name, which originally logged this message 
@@ -238,6 +241,11 @@ local function isNonEmptyTable(t)
   return t ~= nil and type(t) == "table" and next(t) ~= nil
 end
 
+--- Checks if the given string is a word character (alphanumeric).
+---@param str string? The string to be checked
+---@return boolean #`true` if the given string satisfies the check, otherwise `false`
+local function isWordChar(str)  return str ~= nil and str:match("%w") ~= nil  end
+
 --- Formats the given or current date according to the ISO 8601 long format
 --- `yyyy-mm-ddThh:mm:ss.ffff[+-]hh:mm`.<br/>
 --- Example of returned date: `2016-11-09T04:25:28.0000+02:00`.
@@ -251,22 +259,24 @@ local function dateISO(date, millis)
   local hour, minute, second  = date:getTime()
 
   -- determine the hour offset corresponding to DST (daylight saving time) Europe:
-  local offset = 0
+  local dstOffset = 0
   -- January, February, November and December are out
   if     month > 3 and month < 10 then -- April to September are in
-    offset = 1
+    dstOffset = 1
   elseif month == 3 then -- March
     local marchSunday = math.ceil(31 - ((1.25 * year + 4) % 7))
     -- in March we are DST if our day is the last Sunday (can be the 25th ~ 31st) or after
-    if day >= marchSunday then offset = 1 end
+    if day >= marchSunday then dstOffset = 1 end
   elseif month == 10 then -- October
     local octoberSunday = math.ceil(31 - ((1.25 * year + 1) % 7))
     -- in October we are DST if our day is before the last Sunday (can be the 25th ~ 31st)
-    if day < octoberSunday then offset = 1 end
+    if day < octoberSunday then dstOffset = 1 end
   end
+  local tzHourOffset  = TIMEZONE_HOUR_OFFSET + dstOffset
+  local tzSign        = (tzHourOffset >= 0 and "+") or "-"
 
-  return fmt("%s-%02d-%02dT%02d:%02d:%02d.%03d0+%02d:00",
-             tostring(year), month, day, hour, minute, second, millis, 2 + offset)
+  return fmt("%s-%02d-%02dT%02d:%02d:%02d.%03d0%s%02d:00",
+    tostring(year), month, day, hour, minute, second, millis, tzSign, tzHourOffset)
 end
 
 --- Decomposes the given date in ISO 8601 long format `yyyy-mm-ddThh:mm:ss.(f+)[+-]hh:mm`
@@ -723,6 +733,46 @@ end
 --#endregion **********
 
 
+--#region SAC functions **********
+
+--- Gets the SAC (script activation code) 2-byte user data of the current script, and formats
+--- it as a printable string if containing only alphanumeric characters.
+---@return number|string? #The raw SAC data on successful extraction, or the formatted data on additional successful check, otherwise `nil`
+local function getFormattedSACData()
+  local sacUserData = vpos.script.currentScript():getSACUserData() ---@type number
+  if sacUserData == nil then return nil end
+
+  local highByte  = (sacUserData >> 8) & 0xFF
+  local lowByte   =  sacUserData       & 0xFF
+  local char1     = string.char(highByte)
+  local char2     = string.char(lowByte)
+  if isWordChar(char1) and isWordChar(char2) then return char1 .. char2 end
+
+  return sacUserData
+end
+
+--- Determines and returns the timezone hour offset based on the SAC (script activation code)
+--- user data of the current script.
+---@return integer #The timezone hour offset; defaults to 2 for 'dev one' SAC (ID=11) or if unrecognized or not extracted
+local function getTimezoneHourOffsetFromSAC()
+  local tzHourOffset = 2
+  local sacData = getFormattedSACData()
+  if type(sacData) == "string" then
+    if     sacData == "CZ" then tzHourOffset = 1
+    elseif sacData == "IE" then tzHourOffset = 0
+    elseif sacData == "AT" then tzHourOffset = 1
+    elseif sacData == "DE" then tzHourOffset = 1
+    elseif sacData == "NK" then tzHourOffset = 1 -- dealer nieswandt-kassen.de
+    elseif sacData == "KG" then tzHourOffset = 1 -- dealer kassensysteme-geiger.de
+    elseif sacData == "TR" then tzHourOffset = 2 -- dealer omni.com.tr
+    end
+  end
+  return tzHourOffset
+end
+
+--#endregion **********
+
+
 --#region Script metadata functions **********
 
 --- Reads the log list/queue indexed by "q" (or old "key") key, from the script metadata.
@@ -792,14 +842,14 @@ local function circularBufferPush(b, message)
 end
 
 --- Decomposes the given ISO date of a log line / message, which is to be relogged.
----@param isoDate string? 
----@return table? decomposedDate The decomposed ISO date on success, otherwise `nil` <br/>
+---@param isoDate string? #The ISO date to be decomposed
+---@return table? decomposedDate #The decomposed ISO date if it is valid and successfully processed, otherwise `nil` <br/>
 ---@see decomposeIsoDate 
 local function decomposeReloggedMessageDateTime(isoDate)
   local ok, decomposedDate = pcall(decomposeIsoDate, isoDate)
   if not ok then -- `decomposedDate` is `pcall`s error message here
     local errMsg = getErrorReason(tostring(decomposedDate))
-    logDev("Can't decompose `" .. isoDate .. "` as ISO date", errMsg)
+    logDev("Can't decompose `" .. tostring(isoDate) .. "` as ISO date", errMsg)
     -- upon errors consider that the date-time is unknown
     return nil
   end
@@ -1748,6 +1798,8 @@ local function initSettings()
   local scriptBaseName    = get_base_file_name_from_name(LOGGER_SCRIPT_NAME)
   LOGGER_LOG_NAME         = scriptBaseName .. ".log"
   LOGGER_BACKUP_LOG_NAME  = scriptBaseName .. ".1.log"
+
+  TIMEZONE_HOUR_OFFSET = getTimezoneHourOffsetFromSAC()
 end
 
 --- Gets the queue saved in the script metadata if present, otherwise an empty and initialized
@@ -1790,7 +1842,7 @@ local function initUploadingOfflineLogs()
   if IS_UPLOADING_LOGS_SUPPORTED then UploadStopWatch:start() end
 end
 
-local function initLogsIniRelatedVariables()
+local function initLogsIniRelatedConstants()
   local fileList = vpos.file.getFileList("VPOS")
 
   -- scan LOGS section of all INI files
@@ -1868,7 +1920,7 @@ local function initLogsIniRelatedVariables()
     end
   end
   if vspFileCount <= 0 then
-    AreAllScriptsLoggingOffline = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI
+    AreAllScriptsLoggingOffline = LOG_TYPE_FOR_UPLOADING_LOGS_WITHOUT_INI == LogType.OFFLINE
   end
 
   -- set the logger's logging type according to AreAllScriptsLoggingOffline, being without an INI
@@ -1891,7 +1943,7 @@ initUploadingOfflineLogs()
 
 vpos.script.registerAsInterScript()
 
-initLogsIniRelatedVariables()
+initLogsIniRelatedConstants()
 
 registerTimer()
 
